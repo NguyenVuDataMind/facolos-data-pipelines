@@ -1,0 +1,130 @@
+version: '3.8'
+
+services:
+  # SQL Server Database - Facolos Enterprise Data Warehouse
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: facolos_enterprise_sqlserver
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=FacolosDB2024!
+      - MSSQL_PID=Express
+    ports:
+      - "1433:1433"
+    volumes:
+      - D:/Facolos_Enterprise_Data/SQL_Server_Data:/var/opt/mssql
+      - ./sql:/docker-entrypoint-initdb.d
+    networks:
+      - facolos_enterprise_network
+    restart: unless-stopped
+
+  # Apache Airflow - PostgreSQL (Airflow metadata)
+  postgres:
+    image: postgres:13
+    container_name: facolos_enterprise_postgres
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - D:/Facolos_Enterprise_Data/Airflow_Metadata:/var/lib/postgresql/data
+    networks:
+      - facolos_enterprise_network
+    restart: unless-stopped
+
+  # Redis (Airflow message broker)
+  redis:
+    image: redis:latest
+    container_name: facolos_enterprise_redis
+    expose:
+      - 6379
+    networks:
+      - facolos_enterprise_network
+    restart: unless-stopped
+
+  # Airflow Webserver
+  airflow-webserver:
+    build: .
+    container_name: facolos_enterprise_airflow_webserver
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__BROKER_URL=redis://:@redis:6379/0
+      - AIRFLOW__CORE__FERNET_KEY=YlCImzjge_TeZc6jGAjVLO8b5iWFm_3vNt0BY7r_Jsk=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=true
+      - _AIRFLOW_DB_UPGRADE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+      - _AIRFLOW_WWW_USER_USERNAME=admin
+      - _AIRFLOW_WWW_USER_PASSWORD=admin
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - D:/Facolos_Enterprise_Data/Airflow_Logs:/opt/airflow/logs
+      - ./src:/opt/airflow/src
+      - ./config:/opt/airflow/config
+    ports:
+      - "8080:8080"
+    command: webserver
+    networks:
+      - facolos_enterprise_network
+    restart: unless-stopped
+
+  # Airflow Scheduler
+  airflow-scheduler:
+    build: .
+    container_name: facolos_enterprise_airflow_scheduler
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__BROKER_URL=redis://:@redis:6379/0
+      - AIRFLOW__CORE__FERNET_KEY=YlCImzjge_TeZc6jGAjVLO8b5iWFm_3vNt0BY7r_Jsk=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - D:/Facolos_Enterprise_Data/Airflow_Logs:/opt/airflow/logs
+      - ./src:/opt/airflow/src
+      - ./config:/opt/airflow/config
+    command: scheduler
+    networks:
+      - facolos_enterprise_network
+    restart: unless-stopped
+
+  # Airflow Worker
+  airflow-worker:
+    build: .
+    container_name: facolos_enterprise_airflow_worker
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__BROKER_URL=redis://:@redis:6379/0
+      - AIRFLOW__CORE__FERNET_KEY=YlCImzjge_TeZc6jGAjVLO8b5iWFm_3vNt0BY7r_Jsk=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - D:/Facolos_Enterprise_Data/Airflow_Logs:/opt/airflow/logs
+      - ./src:/opt/airflow/src
+      - ./config:/opt/airflow/config
+    command: celery worker
+    networks:
+      - facolos_enterprise_network
+    restart: unless-stopped
+
+networks:
+  facolos_enterprise_network:
+    driver: bridge
