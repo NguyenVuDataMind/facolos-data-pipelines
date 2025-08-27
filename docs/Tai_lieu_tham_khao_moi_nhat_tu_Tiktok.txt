@@ -1,0 +1,3550 @@
+🎯 TÀI LIỆU ƯU TIÊN CAO NHẤT:
+🔐 1. AUTHENTICATION & SIGNATURE (QUAN TRỌNG NHẤT):
+📋 Cần từ menu: "Developer Guide" > "Authentication"
+📄 Mục cần: "Sign your API request" (đang thấy trong ảnh)
+🌐 2. API REFERENCE:
+📋 Cần từ menu: "API Reference" 
+📄 Các mục cần:
+   - Seller API endpoints
+   - Product API endpoints  
+   - Order API endpoints
+   - Request/Response format
+🔧 3. DEVELOPER GUIDE - AUTHENTICATION:
+📋 Cần từ menu: "Developer Guide" > "Authentication"
+📄 Các mục cần:
+   - OAuth flow steps
+   - Token management
+   - Refresh token process   
+
+Mục cần: "Sign your API request" 
+
+
+Đối tác TikTok Shop
+Sign your API request
+Introduction
+When calling a TikTok Shop API, a signature must be included to properly authenticate your request. All requests that do not include a signature, or have an invalid signature, will be denied access.
+TikTok Shop APIs use HMAC-SHA256 as the default algorithm for generating signatures.
+HS256 (HMAC with SHA-256) is a symmetric algorithm, meaning there is only one private key that is shared between the two parties. Since the same key is used to both generate and validate the signature, care must be taken to ensure that the key is not compromised.
+When TikTok Shop receives an authenticated request, it recreates the signature using the authentication information contained in the request. If the signatures match, the service processes the request. Otherwise, it rejects the request.
+
+❗ Important: TikTok Shop APIs use your app secret as the private key for authentication. You can obtain your app secret from your app details page in Partner Center.
+
+Image
+
+Code Samples
+You can find the code samples in GoLang, Java, and Node.js below. With the code samples, you do not need to dig deep into the algorithm. If you need code samples in other languages, please highlight the sentence and provide feedback for us.
+
+Signature algorithm (Go)
+GO
+Word Wrap
+import (    
+    "crypto/hmac"    
+    "crypto/sha256"    
+    "encoding/hex"    
+    "io"    
+    "net/http"    
+    "sort"    
+)    
+    
+// secret: App secret    
+func CalSign(req *http.Request, secret string) string {    
+    queries := req.URL.Query()    
+    
+    // extract all query parameters excluding sign and access_token    
+    keys := make([]string, len(queries))    
+    idx := 0    
+    for k := range queries {    
+        // params except 'sign' & 'access_token'    
+        if k != "sign" && k != "access_token" {    
+            keys[idx] = k    
+            idx++    
+        }    
+    }    
+        
+    // reorder the parameters' key in alphabetical order    
+    sort.Slice(keys, func(i, j int) bool {    
+        return keys[i] < keys[j]    
+    })    
+    
+    // Concatenate all the parameters in the format of {key}{value}    
+    input := ""    
+    for _, key := range keys {    
+        input = input + key + queries.Get(key)    
+    }    
+    
+    // append the request path    
+    input = req.URL.Path + input    
+    
+    // if the request header Content-type is not multipart/form-data, append body to the end    
+    mediaType, _, _ := mime.ParseMediaType(req.Header.Get("Content-type"))    
+    if mediaType != "multipart/form-data" {    
+        body, _ := io.ReadAll(req.Body)    
+        input = input + string(body)    
+            
+        req.Body.Close()    
+        // reset body after reading from the original    
+        req.Body = io.NopCloser(bytes.NewReader(body))    
+    }    
+    
+    // wrap the string generated in step 5 with the App secret    
+    input = secret + input + secret    
+    
+    return generateSHA256(input, secret)    
+}    
+    
+func generateSHA256(input, secret string) string {    
+    // encode the digest byte stream in hexadecimal and use sha256 to generate sign with salt(secret)    
+    h := hmac.New(sha256.New, []byte(secret))    
+    
+    if _, err := h.Write([]byte(input)); err != nil {    
+        // TODO error log    
+        return ""    
+    }    
+    
+    return hex.EncodeToString(h.Sum(nil))    
+}
+Signature algorithm (Java)
+JAVA
+Word Wrap
+package org.example;  
+  
+import okhttp3.HttpUrl;  
+import okhttp3.Request;  
+import okhttp3.RequestBody;  
+import okio.Buffer;  
+  
+import javax.crypto.Mac;  
+import javax.crypto.spec.SecretKeySpec;  
+import java.nio.charset.StandardCharsets;  
+import java.util.ArrayList;  
+import java.util.Collections;  
+import java.util.List;  
+  
+public class Main {  
+    public String generateSignature(Request request, String secret) {  
+    HttpUrl httpUrl = request.url();  
+    List<String> parameterNameList = new ArrayList<>(httpUrl.queryParameterNames());  
+  
+    // extract all query parameters excluding sign and access_token  
+    parameterNameList.removeIf(param -> "sign".equals(param) || "access_token".equals(param));  
+  
+    // reorder the parameters' key in alphabetical order  
+    Collections.sort(parameterNameList);  
+  
+    // append the request path  
+    StringBuilder parameterStr = new StringBuilder(httpUrl.encodedPath());  
+    for (String parameterName : parameterNameList) {  
+        // Concatenate all the parameters in the format of {key}{value}  
+        parameterStr.append(parameterName).append(httpUrl.queryParameter(parameterName));  
+    }  
+  
+    // if the request header Content-type is not multipart/form-data, append body to the end  
+    String contentType = request.header("Content-Type");  
+    if (!"multipart/form-data".equalsIgnoreCase(contentType)) {  
+        try {  
+            RequestBody requestBody = request.body();  
+            if (requestBody != null) {  
+                Buffer bodyBuffer = new Buffer();  
+                requestBody.writeTo(bodyBuffer);  
+                byte[] bodyBytes = bodyBuffer.readByteArray();  
+                parameterStr.append(new String(bodyBytes, StandardCharsets.UTF_8));  
+            }  
+        } catch (Exception e) {  
+            throw new RuntimeException("failed to generate signature params", e);  
+        }  
+    }  
+  
+    // wrap the string generated in step 5 with the App secret  
+    String signatureParams = secret + parameterStr + secret;  
+  
+    // encode wrapped string using HMAC-SHA256  
+    return generateSHA256(signatureParams, secret);  
+}  
+  
+/**  
+ * generate signature by SHA256  
+ * @param signatureParams signature params  
+ * @return signature  
+ */  
+public String generateSHA256(String signatureParams, String secret) {  
+    try {  
+        // Get an HmacSHA256 Mac instance and initialize with the secret key  
+        Mac sha256HMAC = Mac.getInstance("HmacSHA256");  
+        SecretKeySpec secretKeySpec = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");  
+        sha256HMAC.init(secretKeySpec);  
+  
+        // Update with input data  
+        sha256HMAC.update(signatureParams.getBytes(StandardCharsets.UTF_8));  
+  
+        // Compute the HMAC and get the result  
+        byte[] hashBytes = sha256HMAC.doFinal();  
+  
+        // Convert to hex string  
+        StringBuilder sb = new StringBuilder();  
+        for (byte hashByte : hashBytes) {  
+            sb.append(String.format("%02x", hashByte & 0xff));  
+        }  
+  
+        return sb.toString();  
+    } catch (Exception e) {  
+        throw new RuntimeException("failed to generate signature result", e);  
+    }  
+}  
+}
+Signature algorithm (Node.js)
+TYPESCRIPT
+Word Wrap
+import crypto from "crypto";  
+import localVarRequest from "request";  
+const excludeKeys = ["access_token", "sign"] as const;  
+export const generateSign = (  
+  requestOption: localVarRequest.Options,  
+  app_secret: string  
+) => {  
+  let signString = "";  
+  // step1: Extract all query parameters excluding sign and access_token. Reorder the parameter keys in alphabetical order:  
+  const params = requestOption.qs || {};  
+  const sortedParams = Object.keys(params)  
+    .filter((key) => !excludeKeys.includes(key as any))  
+    .sort()  
+    .map((key) => ({ key, value: params[key] }));  
+  //step2: Concatenate all the parameters in the format {key}{value}:  
+  const paramString = sortedParams  
+    .map(({ key, value }) => `${key}${value}`)  
+    .join("");  
+  
+  signString += paramString;  
+  
+  //step3: Append the string from Step 2 to the API request path:  
+// @ts-ignore  
+  const pathname = new URL(requestOption!.uri!||'').pathname;  
+  
+  signString = `${pathname}${paramString}`;  
+  
+  //step4: If the request header content-type is not multipart/form-data, append the API request body to the string from Step 3:  
+  if (  
+    requestOption.headers?.["content-type"] !== "multipart/form-data" &&  
+    requestOption.body &&  
+    Object.keys(requestOption.body).length  
+  ) {  
+    const body = JSON.stringify(requestOption.body);  
+    signString += body;  
+  }  
+  
+  //step5: Wrap the string generated in Step 4 with the app_secret:  
+  signString = `${app_secret}${signString}${app_secret}`;  
+  
+  //step6: Encode your wrapped string using HMAC-SHA256:  
+  const hmac = crypto.createHmac("sha256", app_secret);  
+  hmac.update(signString);  
+  const sign = hmac.digest("hex");  
+  
+  return sign;  
+};
+Signature algorithm (Python)
+PYTHON
+Word Wrap
+import hmac  
+import hashlib  
+from urllib.parse import urlparse  
+import json  
+  
+def generate_sign(request_option, app_secret):  
+    """  
+    Generate HMAC-SHA256 signature  
+    :param request_option: Request options dictionary containing qs (query params), uri (path), headers, body etc.  
+    :param app_secret: Secret key for signing  
+    :return: Hexadecimal signature string  
+    """  
+    # Step 1: Extract and filter query parameters, exclude "access_token" and "sign", sort alphabetically  
+    params = request_option.get('qs', {})  
+    exclude_keys = ["access_token", "sign"]  
+    sorted_params = [  
+        {"key": key, "value": params[key]}  
+        for key in sorted(params.keys())  
+        if key not in exclude_keys  
+    ]  
+  
+    # Step 2: Concatenate parameters in {key}{value} format  
+    param_string = ''.join([f"{item['key']}{item['value']}" for item in sorted_params])  
+    sign_string = param_string  
+  
+    # Step 3: Append API request path to the signature string  
+    uri = request_option.get('uri', '')  
+    pathname = urlparse(uri).path if uri else ''  
+    sign_string = f"{pathname}{param_string}"  
+  
+    # Step 4: If not multipart/form-data and request body exists, append JSON-serialized body  
+    content_type = request_option.get('headers', {}).get('content-type', '')  
+    body = request_option.get('body', {})  
+    if content_type != 'multipart/form-data' and body:  
+        body_str = json.dumps(body)  # JSON serialization ensures consistency  
+        sign_string += body_str  
+  
+    # Step 5: Wrap signature string with app_secret  
+    wrapped_string = f"{app_secret}{sign_string}{app_secret}"  
+  
+    # Step 6: Encode using HMAC-SHA256 and generate hexadecimal signature  
+    hmac_obj = hmac.new(  
+        app_secret.encode('utf-8'),  
+        wrapped_string.encode('utf-8'),  
+        hashlib.sha256  
+    )  
+    sign = hmac_obj.hexdigest()  
+    return sign
+Step-by-step breakdown
+
+The following is a step-by-step breakdown of how the signature algorithm works:
+
+📌 Note: Feel free to skip straight to the signature algorithm sections if you do not need a step-by-step breakdown. We've provided sample code in Go, Java, and Node.js
+
+As an example, let's assume you'd like to call the Get Authorized Shops endpoint and your app_secret is e59af819cc:
+HTTP
+Word Wrap
+curl -X GET \  
+ 'https://open-api.tiktokglobalshop.com/authorization/202309/shops?app_key=29a39d&sign=bc721f0e0182914e3487b81df204de37a352fc3aa96947efda6dc1e5dd0d5290&timestamp=1623812664' \  
+-H 'x-tts-access-token: TTP_pwSm2AAAAABmmtFz1xlyKMnwg74T2GJ5s0uQbS8jPjb_GkdFVCxPqzQXSyuyfXdQa0AqyDsea2tYFNVf4XeqgZHFfPyv0Vs659QqyLYfsGzanZ5XZAin3_ZkcIxxS0_In6u6XDeU96k' \  
+-H 'content-type: application/json'
+Extract all query parameters excluding sign and access_token. Reorder the parameter keys in alphabetical order:
+GO
+Word Wrap
+keys := make([]string, len(queries))      
+idx := 0      
+for k := range queries {      
+    // params except 'sign' & 'access_token'     
+    if k != "sign" && k != "access_token" {      
+       keys[idx] = k      
+       idx++      
+    }      
+}      
+sort.Slice(keys, func(i, j int) bool {      
+    return keys[i] < keys[j]      
+})
+The resulting reordered query keys is:
+
+PLAINTEXT
+Word Wrap
+keys = []string{      
+    "app_key",         
+    "timestamp"      
+}
+📌 Note: Some API endpoints will require the shop_cipher query parameter, which would then be included in the reordered query keys. Please call Get Authorized Shops to obtain a shop's corresponding shop_cipher.
+
+Concatenate all the parameters in the format {key}{value}:
+GO
+Word Wrap
+// Concatenate all the parameters in the format of {key}{value}    
+input := ""      
+for _, key := range keys {        
+   input = input + key + queries[key]        
+}
+The resulting string becomes:
+
+PLAINTEXT
+Word Wrap
+app_key29a39dtimestamp1623812664
+Append the string from Step 3 to the API request path. The path for Get Authorized Shops is /authorization/202309/shops:
+PLAINTEXT
+Word Wrap
+input = path + input
+The resulting string becomes:
+
+PLAINTEXT
+Word Wrap
+/authorization/202309/shopsapp_key29a39dtimestamp1623812664
+📌 Note: If the request header content-type is not multipart/form-data, append the API request body to the string as well.
+
+PLAINTEXT
+Word Wrap
+input = input + body
+For example, the Update Shop Webhook endpoint includes the address and event_type parameters in the API request body (as well as the shop_cipher parameter in the query parameters). This would result in the following:
+
+PLAINTEXT
+Word Wrap
+/event/202309/webhooksapp_key68xu9ks5p4i8shop_cipherROW_xkMbgAAAeVAQra0eZWebFQq5aIKtimestamp1696909648{    "address":"https://partner.tiktokshop.com",    "event_type": "PACKAGE_UPDATE"}
+Wrap the string generated in Step 4 with your app_secret:
+PLAINTEXT
+Word Wrap
+input = app_secret + input + app_secret
+The final string becomes:
+
+PLAINTEXT
+Word Wrap
+e59af819cc/authorization/202309/shopsapp_key29a39dtimestamp1623812664e59af819cc
+Encode your wrapped string using HMAC-SHA256:
+GO
+Word Wrap
+import (        
+   "crypto/hmac"        
+   "crypto/sha256"        
+   "encoding/hex"        
+   "sort"        
+)        
+/**        
+** input: string we created in step 2     
+** secret: App secret        
+**/        
+func generateSHA256(input, secret string) string{        
+   // encode the digest byte stream in hexadecimal and use sha256 to generate sign with salt(secret)        
+   h := hmac.New(sha256.New, []byte(secret))        
+    
+   if _, err := h.Write([]byte(input)); err != nil{        
+      // TODO error log     
+      return ""        
+   }        
+        
+   return hex.EncodeToString(h.Sum(nil))        
+}
+The resulting sign is:
+
+PLAINTEXT
+Word Wrap
+b596b73e0cc6de07ac26f036364178ab16b0a907af13d43f0a0cd2345f582dc8
+Common mistakes
+What is the most common reason for encountering the "signature is invalid" error during an API call?
+
+Frequently, this error occurs when developers use incorrect app keys and secrets to generate the signature. It's essential to verify that the app key and secret match precisely.
+
+Ensure sign and access_token are not included in the reordered query keys (Step 2).
+
+Always ensure that you are using the HMAC-SHA256 signature method (different from regular SHA-256).
+
+Ensure that the timestamp is within 5 minutes of the current time when the platform receives the request. The timestamp must be represented as a 10-digit Unix timestamp.
+
+
+-- Phần Product API Reference 
+
+
+Đối tác TikTok Shop
+Products API overview
+Context
+The Product API helps sellers manage their product catalog at scale. Using the Product API, a seller can create, edit, delete products, and retrieve product details, as well as sync them into Tiktok Shop from an external DTC/OMS/ERP system (such as Shopify) for sales on TikTok Shop.
+A product can be created either as a live product or a draft via Create Product API.
+The steps to create a product varies based on the location of the shop.
+
+For EU countries
+
+
+
+
+
+For other regions
+
+
+Products may be deactivated or frozen by TikTok for various policy violations. You can obtain the real-time review result of the product via the Product webhook.
+Product details can be retrieved via the Get Product List API and the Get Product Detail API. Product details include product basic information and sales terms. Basic information includes item titles, description, inventory, images, etc. Sales terms include price and inventory, etc.
+A product will be reviewed by TikTok after the product is created or edited. If a live product fails the review after being edited, the live version remains the snapshot of the product before the editing. To retrieve the after-editing version being reviewed, specify True for the need_audit_version parameter field when calling the Get Product Detail API.
+
+Important Concepts
+Product: A product is an item that a seller lists on TikTok for sale. A product is identified by its unique product ID.
+Category: Products on TikTok are grouped into categories predefined by TikTok. All products must belong to a category. Categories are organized in a tree structure. You can retrieve all available categories via Get Category API.
+Attribute: Attributes are supplementary content of product information. Attributes are associated with categories. For a particular category, some attributes are required while others are optional. Attributes can be further divided into product attributes and sales attributes.
+
+Product attributes are general attributes such as manufacturer, country of origin, materials used)
+Sales attributes are attributes that are specific to the variant (aka SKU) of a product such as size, color, length.
+Custom attributes are attributes that a seller can optionally create to supplement the product information. For example, weight is generally a generic product attribute, which is primarily used for shipping calculations. However, if your product is an extremely lightweight product for example performance outdoor clothing, you can list the weight as a custom attribute.
+Product Status: A product has the following statuses:
+
+#	Status	Definition
+1
+Draft
+A product in the Draft status is not visible to TikTok Shop users. The seller may need to create a product in Draft mode, then supplement further product information before activating the product for sale.
+2
+Pending
+A product is in the Pending status when it is being reviewed by TikTok.
+3
+Failed
+A product is in the Failed status if the product fails the review by TikTok.
+4
+Activate
+A product in the Activate status is visible to TikTok Shop users and available for purchase. A product can be live, but out of stock, which will not be available for purchase.
+5
+Seller_deactivated
+The product has been deactivated by the seller. This removes the product from the shelf and from visibility to consumers. You can reactivate this product at any time.
+6
+Platform_deactivated
+The product has been deactivated by TikTok. The seller may edit the product information and re-submit for review, which will put the product into the Pending status.
+7
+Freeze
+The product has been frozen by TikTok for violating TikTok Shop policies. TikTok Shop policies vary by region. The seller may appeal to unfreeze a frozen product. Once unfrozen, the product will be put back into the Platform_deactivated status.
+8
+Deleted
+The seller has deleted the product. All historical data, including purchases, financial reports...etc will be removed from the platform. Only delete a product if you are 100% sure that you will no longer be selling the product and you have completed all internal reporting/financial analysis.
+TikTok Shop Marketplace Policies
+Brand authorization: TikTok requires the seller of a product to provide brand authorization for certain brands either as the direct manufacturer or an authorized reseller. Branded products without valid brand authorization cannot be listed on TikTok for sale. To verify whether the seller has authorization for a particular brand, use the Get Brand API.
+Product certification: For certain categories, product certification is required to prove the authenticity of the product. These certifications are meant to comply with local laws. Some examples include ingredients in beauty or consumable products.
+Product upload limit: To assist new sellers with order fulfillment, all new shops (both individual and corporate) on TikTok Shop are subject to a probation period that limits the number of daily orders sellers can accept and the number of product uploads sellers can list per day.
+
+New individual sellers are limited to 100 orders per day.
+New corporate sellers are limited to 200 orders per day.
+All new sellers are limited to 100 product uploads per day.
+Once sellers graduate from probation, sellers are not subject to order limits but are limited to 1,000 product uploads per day.
+
+Frequently Asked Questions
+- I can't get my product to list. What is going on?
+
+There are several reasons for this. Please check the following:
+Your product has all the required attributes.
+
+Your product has all the required certifications, based on the category it is assigned.
+
+You have reached your 100 product upload limit per day, as a new Seller. Please try again the next day.
+
+- How do I overcome the Product Upload limit?
+
+New sellers are limited to 100 products per day. If you would like to overcome this limit and graduate from new seller probation, please reach out to your TikTok account manager.
+
+- My product continuously fails TikTok reviews. Help!
+
+Check that your images are high quality.
+
+Check that your category or product is allowed for sale in the region.
+
+Check that you have filled in all required product attributes.
+
+If the above is not resolved, please reach out to your TikTok Account Manager.
+
+- What is the difference between Deactivate and Delete?
+
+Deactivate will temporarily remove your product off the shelf. All back-end data, including sales, reports, product description, will persist. You can reactivate this product at any time, when you receive more inventory etc.
+Deleting a product will remove the product from your catalog forever. This also removes historical sales data, financial settlements...etc. Only do this if you have tied up all your accounting and reporting matters, and are fully committed to removing the product from your catalog forever.
+
+
+
+
+Đối tác TikTok Shop
+Get Product 
+​
+Required scope:
+​seller.product.basic
+​
+Retrieve all properties of a product, except those in the FREEZE or DELETED status.​
+  
+​
+​Get   /product/202309/products/{product_id}​
+​
+Request​
+View common parameters​
+Header
+Properties​
+Type​
+Description​
+content-type​
+ Required​
+string​
+Allowed type: application/json​
+x-tts-access-token​
+ Required​
+string​
+The seller access_token value from Get Access Token, when user_type = 0. Follow this guide to get seller access_token.​
+​
+Query
+Properties​
+Type​
+Description​
+shop_cipher​
+ Required​
+string​
+Use this property to pass shop information in requesting the API. Failure in passing the correct value when requesting the API for cross-border shops will return incorrect response. ​
+Get by API Get Authorization Shop​
+app_key​
+ Required​
+string​
+Every single app will have a unique key. Please use the specific key assigned to your app.​
+sign​
+ Required​
+string​
+Signature generated by gen algorithm. When you send API requests to TTS, you must sign them so that TTS can identify the senders. ​
+timestamp​
+ Required​
+int​
+Unix timestamp GMT (UTC+00:00). This timestamp is used across all API requests. Developers can use this convert to local time.​
+return_under_review_version​
+bool​
+A flag to indicate what product information to retrieve if a live product (ACTIVATE status) is edited and resent for TikTok Shop review.​
+- True: Retrieves the latest version of the product information that is currently under review.​
+- False: Retrieves a snapshot of the product information that is live and online (before the edit).​
+Default: False​
+return_draft_version​
+bool​
+A flag to indicate what product information to retrieve if a product has a draft in TikTok Shop.​
+- True: Retrieves the draft version of the product information.​
+- False: Retrieves the latest product information.​
+Default: False​
+​
+Note: ​
+- Applicable only if the product is in the DRAFT, ACTIVATE, SELLER_DEACTIVATED, or PLATFORM_DEACTIVATED status.​
+- This field and return_under_review_version are mutually exclusive. Specify only one to receive results.​
+​
+Example
+​
+Curl
+curl -X GET \
+ 'https://open-api.tiktokglobalshop.com/product/202309/products/1729592969712207008?return_under_review_version=true&return_draft_version=true&app_key=38abcd&sign=5361235029d141222525e303d742f9e38aea052d10896d3197ab9d6233730b8c&timestamp=1623812664&shop_cipher=GCP_XF90igAAAABh00qsWgtvOiGFNqyubMt3' \
+-H 'x-tts-access-token: TTP_pwSm2AAAAABmmtFz1xlyKMnwg74T2GJ5s0uQbS8jPjb_GkdFVCxPqzQXSyuyfXdQa0AqyDsea2tYFNVf4XeqgZHFfPyv0Vs659QqyLYfsGzanZ5XZAin3_ZkcIxxS0_In6u6XDeU96k' \
+-H 'content-type: application/json'
+
+Go
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+func product202309GetProductGet() {
+    configuration := apis.NewConfiguration()
+    configuration.AddAppInfo(appKey, appSecret)
+    apiClient := apis.NewAPIClient(configuration)
+    request := apiClient.ProductV202309API.Product202309ProductsProductIdGet(context.Background(), "1729592969712207008")
+    request = request.XTtsAccessToken("your access token")
+    request = request.ContentType("application/json")
+    request = request.ReturnUnderReviewVersion(true)
+    request = request.ReturnDraftVersion(true)
+    request = request.ShopCipher("your shop cipher")
+    resp, httpResp, err := request.Execute()
+    if err != nil || httpResp.StatusCode != 200 {
+        fmt.Printf("productsRequest err:%v resbody:%s", err, httpResp.Body)
+        return
+    }
+    if resp == nil {
+        fmt.Printf("response is nil")
+        return
+    }
+    if resp.GetCode()!= 0 {
+        fmt.Printf("response business is error, errorCode:%d errorMessage:%s", resp.GetCode(), resp.GetMessage())
+        return
+    }
+    respDataJson, _ := json.MarshalIndent(resp.GetData(), "", "  ")
+    fmt.Println("response data:", string(respDataJson))
+    return
+}
+
+
+Node.js
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+async function product202309GetProductGet() {
+    const result = await client.api.ProductV202309Api.ProductsProductIdGet("1729592969712207008", "your access token", "application/json", true, true, "your shop cipher");
+    console.log('response: ', JSON.stringify(result, null, 2));
+}
+
+
+Java
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+public void product202309GetProductGet() throws Exception {
+    ApiClient defaultClient = Configuration.getDefaultApiClient()
+            .setAppkey("your appKey")
+            .setSecret("your secret")
+            .setBasePath("https://open-api.tiktokglobalshop.com");
+    ProductV202309Api apiInstance = new ProductV202309Api(defaultClient);
+    GetProductResponse result = apiInstance.product202309ProductsProductIdGet("1729592969712207008", "your access token", "application/json", true, true, "your shop cipher");
+    System.out.println(result);
+}
+
+​
+​
+Response​
+Parameters
+Properties​
+Type​
+Description​
+code​
+int​
+The success or failure status code returned in API response.​
+message​
+string​
+The success or failure messages returned in API response. Reasons of failure will be described in the message.​
+request_id​
+string​
+Request log​
+data​
+object​
+Specific return information​
+​
+Example
+​
+JSON
+{
+  "code": 0,
+  "data": {
+    "id": "1729592969712207008",
+    "status": "SELLER_DEACTIVATED",
+    "title": "Short Boat Invisible Socks",
+    "category_chains": [
+      {
+        "id": "853000",
+        "parent_id": "851848",
+        "local_name": "Botol & Stoples Penyimpanan",
+        "is_leaf": true
+      }
+    ],
+    "brand": {
+      "id": "7082427311584347905",
+      "name": "brand xxx aaa"
+    },
+    "main_images": [
+      {
+        "height": 600,
+        "width": 600,
+        "thumb_urls": [
+          "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+        ],
+        "uri": "tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4",
+        "urls": [
+          "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+        ]
+      }
+    ],
+    "video": {
+      "id": "v09ea0g40000cj91373c77u3mid3g1s0",
+      "cover_url": "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036",
+      "format": "MP4",
+      "url": "https://v16m-default.akamaized.net/bbae7099581b26cd340beaa7821b2d8c/64de6020/video/tos/alisg/tos-alisg-v-f466fc-sg/oMne9QuzIBN3fIDN7bFCCMbBKuGigg12ghDC8k/?a=0&ch=0&cr=0&dr=0&er=0&lr=default&cd=0%7C0%7C0%7C0&br=2212&bt=1106&cs=0&ds=3&ft=dl9~j-Inz7TKnfsfiyq8Z&mime_type=video_mp4&qs=13&rc=anR4Ojk6ZmYzbTMzODRmNEBpanR4Ojk6ZmYzbTMzODRmNEBsYWFwcjRva2NgLS1kLy1zYSNsYWFwcjRva2NgLS1kLy1zcw%3D%3D&l=202308171159498F7B108584E58B010932&btag=e00048000",
+      "width": 1280,
+      "height": 480,
+      "size": 1000
+    },
+    "description": "<p>Please compare above detailed size with your measurement before purchase.</p>\n<ul> \n  <li>M-Size</li>\n  <li>XL-Size</li>\n</ul> \n<img src=\"https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/181595ea7d26489284b5667488d708c1~tplv-o3syd03w52-origin-jpeg.jpeg?from=1432613627\" />\n",
+    "package_dimensions": {
+      "length": "10",
+      "width": "10",
+      "height": "10",
+      "unit": "CENTIMETER"
+    },
+    "package_weight": {
+      "value": "1.32",
+      "unit": "KILOGRAM"
+    },
+    "skus": [
+      {
+        "id": "10001",
+        "seller_sku": "sku name",
+        "price": {
+          "tax_exclusive_price": "110",
+          "sale_price": "117.5",
+          "currency": "USD",
+          "unit_price": "1"
+        },
+        "inventory": [
+          {
+            "warehouse_id": "6966568648651605766",
+            "quantity": 999
+          }
+        ],
+        "identifier_code": {
+          "code": "10000000000010",
+          "type": "GTIN"
+        },
+        "sales_attributes": [
+          {
+            "id": "100000",
+            "name": "Color",
+            "value_id": "100000",
+            "value_name": "Red",
+            "sku_img": {
+              "height": 100,
+              "width": 100,
+              "thumb_urls": [
+                "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+              ],
+              "uri": "tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4",
+              "urls": [
+                "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+              ]
+            },
+            "supplementary_sku_images": [
+              {
+                "uri": "tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4",
+                "height": 100,
+                "width": 100,
+                "thumb_urls": [
+                  "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+                ],
+                "urls": [
+                  "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+                ]
+              }
+            ]
+          }
+        ],
+        "external_sku_id": "1729592969712207234",
+        "combined_skus": [
+          {
+            "product_id": "1729582718312380123",
+            "sku_id": "1729582718312380123",
+            "sku_count": 1,
+            "seller_sku": "sku_name",
+            "title": "Short Boat Invisible Socks",
+            "sales_attributes": [
+              {
+                "id": "100000",
+                "name": "Color",
+                "value_id": "100000",
+                "value_name": "Red",
+                "sku_img": {
+                  "height": 100,
+                  "width": 100,
+                  "thumb_urls": [
+                    "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+                  ],
+                  "uri": "tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4",
+                  "urls": [
+                    "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+                  ]
+                },
+                "supplementary_sku_images": [
+                  {
+                    "uri": "tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4",
+                    "height": 100,
+                    "width": 100,
+                    "thumb_urls": [
+                      "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+                    ],
+                    "urls": [
+                      "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "price": {
+              "tax_exclusive_price": "110",
+              "sale_price": "117.5",
+              "currency": "USD"
+            },
+            "inventory": [
+              {
+                "warehouse_id": "6966568648651605766",
+                "quantity": 999
+              }
+            ],
+            "product_main_image": {
+              "height": 600,
+              "width": 600,
+              "thumb_urls": [
+                "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+              ],
+              "uri": "tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4",
+              "urls": [
+                "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+              ]
+            },
+            "categories": [
+              {
+                "id": "853000",
+                "parent_id": "851848",
+                "local_name": "Botol & Stoples Penyimpanan",
+                "is_leaf": true
+              }
+            ],
+            "brand": {
+              "id": "7082427311584347905",
+              "name": "brand xxx aaa"
+            },
+            "combined_listing_not_live_reasons": [
+              "SUB_PRODUCT_DELETE"
+            ]
+          }
+        ],
+        "global_listing_policy": {
+          "price_sync": true,
+          "inventory_type": "SHARED",
+          "replicate_source": {
+            "product_id": "1729592969712203232",
+            "shop_id": "7295929697122032321",
+            "sku_id": "1729592969712203232"
+          }
+        },
+        "sku_unit_count": "1.00",
+        "external_urls": [
+          "https://example.com/path1",
+          "https://example.com/path2"
+        ],
+        "extra_identifier_codes": [
+          "00012345678905",
+          "9780596520687"
+        ],
+        "pre_sale": {
+          "type": "PRE_ORDER",
+          "fulfillment_type": {
+            "handling_duration_days": 3,
+            "release_date": 1619611761
+          }
+        },
+        "list_price": {
+          "amount": "1",
+          "currency": "USD"
+        },
+        "external_list_prices": [
+          {
+            "source": "SHOPIFY_COMPARE_AT_PRICE",
+            "amount": "1",
+            "currency": "USD"
+          }
+        ]
+      }
+    ],
+    "certifications": [
+      {
+        "id": "602362",
+        "title": "SNI Certificate",
+        "files": [
+          {
+            "id": "v09ea0g40000cj91373c77u3mid3g1s0",
+            "urls": [
+              "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+            ],
+            "name": "CERT_X2.PDF",
+            "format": "PDF"
+          }
+        ],
+        "images": [
+          {
+            "height": 600,
+            "width": 600,
+            "thumb_urls": [
+              "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+            ],
+            "uri": "tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4",
+            "urls": [
+              "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+            ]
+          }
+        ],
+        "expiration_date": 1741235456
+      }
+    ],
+    "size_chart": {
+      "image": {
+        "height": 600,
+        "width": 600,
+        "thumb_urls": [
+          "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+        ],
+        "uri": "tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4",
+        "urls": [
+          "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/6c8519a3663a4d728c4e3c131dc914b4~tplv-o3syd03w52-resize-jpeg:300:300.jpeg?from=522366036"
+        ]
+      },
+      "template": {
+        "id": "7267563252536723205"
+      }
+    },
+    "is_cod_allowed": true,
+    "product_attributes": [
+      {
+        "id": "100392",
+        "name": "Occasion",
+        "values": [
+          {
+            "id": "1001533",
+            "name": "Birthday"
+          }
+        ]
+      }
+    ],
+    "audit_failed_reasons": [
+      {
+        "position": "product",
+        "reasons": [
+          "violate listing rules"
+        ],
+        "suggestions": [
+          "The product violates TikTok Shopping listing rules, please check and resubmit."
+        ],
+        "listing_platform": "TIKTOK_SHOP"
+      }
+    ],
+    "update_time": 1234567899,
+    "create_time": 1234567890,
+    "delivery_options": [
+      {
+        "id": "1729592969712203232",
+        "name": "SEND_BY_SELLER",
+        "is_available": true
+      }
+    ],
+    "external_product_id": "172959296971220002",
+    "product_types": [
+      "COMBINED_PRODUCT"
+    ],
+    "is_not_for_sale": true,
+    "recommended_categories": [
+      {
+        "id": "850003",
+        "local_name": "\t\nBotol & Stoples Penyimpanan"
+      }
+    ],
+    "manufacturer_ids": [
+      "172959296971220002"
+    ],
+    "responsible_person_ids": [
+      "172959296971220003"
+    ],
+    "listing_quality_tier": "POOR",
+    "integrated_platform_statuses": [
+      {
+        "platform": "TOKOPEDIA",
+        "status": "PLATFORM_DEACTIVATED"
+      }
+    ],
+    "shipping_insurance_requirement": "OPTIONAL",
+    "minimum_order_quantity": 1,
+    "is_pre_owned": false,
+    "audit": {
+      "status": "AUDITING",
+      "pre_approved_reasons": [
+        "KYC_PENDING"
+      ]
+    },
+    "global_product_association": {
+      "global_product_id": "1729592969712207920",
+      "sku_mappings": [
+        {
+          "global_sku_id": "1729592969712207234",
+          "local_sku_id": "1729592969712207230",
+          "sales_attribute_mappings": [
+            {
+              "local_attribute_id": "100000",
+              "global_attribute_id": "100000",
+              "local_value_id": "1001064",
+              "global_value_id": "1001064"
+            }
+          ]
+        }
+      ]
+    },
+    "prescription_requirement": {
+      "needs_prescription": false
+    },
+    "product_families": [
+      {
+        "id": "1000592969712207000",
+        "products": [
+          {
+            "id": "1729592969712207008"
+          }
+        ]
+      }
+    ],
+    "primary_combined_product_id": "1729592969712207008",
+    "has_draft": true
+  },
+  "message": "Success",
+  "request_id": "202203070749000101890810281E8C70B7"
+}
+​
+​
+Error Code​
+View common error codes​
+Code​
+Message​
+12019150​
+The product ID does not exist. ​
+12052032​
+The product does not exist​
+12052048​
+You cannot edit the specified product(s) as it isn't listed in your account or shop. ​
+12052260​
+product id not exist​
+12052704​
+seller id not exist​
+12052900​
+System error, try again later​
+12052901​
+The product in its current status is not available for this operation. Change the product status and try again.​
+​
+​
+
+
+Đối tác TikTok Shop
+Get Categories 
+​
+Required scope:
+​seller.product.basic
+​
+Retrieve the list of product categories available for your shop.​
+Product categories are updated frequently, so it's recommended to call the API in real time to ensure you are using the latest category data. Caching category data locally may result in using outdated information, leading to errors when creating products.​
+For the Indonesia market: To list a product on both TikTok Shop and Tokopedia, you must use only categories that are available on both platforms. Please call this API twice to identify the overlapping categories.​
+  
+​
+​
+GEt  /product/202309/categories​
+​
+Request​
+View common parameters​
+Header
+Properties​
+Type​
+Description​
+content-type​
+ Required​
+string​
+Allowed type: application/json​
+x-tts-access-token​
+ Required​
+string​
+The seller access_token value from Get Access Token, when user_type = 0. Follow this guide to get seller access_token.​
+​
+Query
+Properties​
+Type​
+Description​
+shop_cipher​
+ Required​
+string​
+Use this property to pass shop information in requesting the API. Failure in passing the correct value when requesting the API for cross-border shops will return incorrect response. ​
+Get by API Get Authorization Shop​
+app_key​
+ Required​
+string​
+Every single app will have a unique key. Please use the specific key assigned to your app.​
+sign​
+ Required​
+string​
+Signature generated by gen algorithm. When you send API requests to TTS, you must sign them so that TTS can identify the senders. ​
+timestamp​
+ Required​
+int​
+Unix timestamp GMT (UTC+00:00). This timestamp is used across all API requests. Developers can use this convert to local time.​
+locale​
+string​
+The BCP-47 locale codes for displaying category information.​
+Default: The default locale of your shop.​
+Possible values:​
+- de-DE​
+- en-GB​
+- en-IE​
+- en-US​
+- es-ES​
+- es-MX​
+- fr-FR​
+- id-ID​
+- it-IT​
+- ja-JP​
+- ms-MY​
+- pt-BR​
+- th-TH​
+- vi-VN​
+- zh-CN​
+keyword​
+string​
+Filter categories by this keyword in local_name.​
+category_version​
+string​
+Filter categories by the category tree version.​
+Possible values based on region:​
+- US: v2, represents the 7-level category tree.​
+  Important: For US shops, you must pass v2 when using this API.​
+- Other regions: v1, represents the 3-level category tree.​
+Default: v1​
+listing_platform​
+string​
+Filter categories by the specified platform.​
+Possible values:​
+- TIKTOK_SHOP​
+- TOKOPEDIA​
+Default: TIKTOK_SHOP​
+​
+Applicable only for sellers that migrated from Tokopedia.​
+include_prohibited_categories​
+bool​
+A flag to indicate whether to include categories that are prohibited on TikTok Shop. Set this to true to identify which are the product categories that you can't list on TikTok Shop in any circumstances.​
+Applicable only for BR, MX, EU and SEA markets.​
+​
+Example
+​
+Curl
+curl -X GET \
+ 'https://open-api.tiktokglobalshop.com/product/202309/categories?shop_cipher=GCP_XF90igAAAABh00qsWgtvOiGFNqyubMt3&locale=en-US&category_version=v1&listing_platform=TIKTOK_SHOP&include_prohibited_categories=false&timestamp=1623812664&sign=5361235029d141222525e303d742f9e38aea052d10896d3197ab9d6233730b8c&keyword=electronics&app_key=38abcd' \
+-H 'x-tts-access-token: TTP_pwSm2AAAAABmmtFz1xlyKMnwg74T2GJ5s0uQbS8jPjb_GkdFVCxPqzQXSyuyfXdQa0AqyDsea2tYFNVf4XeqgZHFfPyv0Vs659QqyLYfsGzanZ5XZAin3_ZkcIxxS0_In6u6XDeU96k' \
+-H 'content-type: application/json'
+
+Go
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+func product202309GetCategoriesGet() {
+    configuration := apis.NewConfiguration()
+    configuration.AddAppInfo(appKey, appSecret)
+    apiClient := apis.NewAPIClient(configuration)
+    request := apiClient.ProductV202309API.Product202309CategoriesGet(context.Background())
+    request = request.XTtsAccessToken("your access token")
+    request = request.ContentType("application/json")
+    request = request.Locale("en-US")
+    request = request.Keyword("electronics")
+    request = request.CategoryVersion("v1")
+    request = request.ListingPlatform("TIKTOK_SHOP")
+    request = request.IncludeProhibitedCategories(false)
+    request = request.ShopCipher("your shop cipher")
+    resp, httpResp, err := request.Execute()
+    if err != nil || httpResp.StatusCode != 200 {
+        fmt.Printf("productsRequest err:%v resbody:%s", err, httpResp.Body)
+        return
+    }
+    if resp == nil {
+        fmt.Printf("response is nil")
+        return
+    }
+    if resp.GetCode()!= 0 {
+        fmt.Printf("response business is error, errorCode:%d errorMessage:%s", resp.GetCode(), resp.GetMessage())
+        return
+    }
+    respDataJson, _ := json.MarshalIndent(resp.GetData(), "", "  ")
+    fmt.Println("response data:", string(respDataJson))
+    return
+}
+
+
+Node.js
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+async function product202309GetCategoriesGet() {
+    const result = await client.api.ProductV202309Api.CategoriesGet("your access token", "application/json", "en-US", "electronics", "v1", "TIKTOK_SHOP", false, "your shop cipher");
+    console.log('response: ', JSON.stringify(result, null, 2));
+}
+
+
+Java
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+public void product202309GetCategoriesGet() throws Exception {
+    ApiClient defaultClient = Configuration.getDefaultApiClient()
+            .setAppkey("your appKey")
+            .setSecret("your secret")
+            .setBasePath("https://open-api.tiktokglobalshop.com");
+    ProductV202309Api apiInstance = new ProductV202309Api(defaultClient);
+    GetCategoriesResponse result = apiInstance.product202309CategoriesGet("your access token", "application/json", "en-US", "electronics", "v1", "TIKTOK_SHOP", false, "your shop cipher");
+    System.out.println(result);
+}
+
+​
+​
+Response​
+Parameters
+Properties​
+Type​
+Description​
+code​
+int​
+The success or failure status code returned in API response.​
+message​
+string​
+The success or failure messages returned in API response. Reasons of failure will be described in the message.​
+request_id​
+string​
+Request log​
+data​
+object​
+Specific return information​
+​
+Example
+​
+JSON
+{
+  "code": 0,
+  "data": {
+    "categories": [
+      {
+        "id": "600002",
+        "parent_id": "600001",
+        "local_name": "Home Supplies",
+        "is_leaf": false,
+        "permission_statuses": [
+          "INVITE_ONLY",
+          "NON_MAIN_CATEGORY"
+        ]
+      }
+    ]
+  },
+  "message": "Success",
+  "request_id": "202203070749000101890810281E8C70B7"
+}
+​
+​
+Error Code​
+View common error codes​
+Code​
+Message​
+12019210​
+publish param invalid​
+12052023​
+Category does not exist​
+12052217​
+Incorrect category version. For US shops or global sellers with an active US shop, specify 'category version=v2'. For shops in other regions specify 'category_version=v1'.​
+12052230​
+The specified category ID is not a leaf category, or it does not belong to the specified category version. Note: For US shops or global sellers with an active US shop, specify 'category_version=v2'. For shops in other regions, specify 'category_version=v1'. Use the Get Categories/Get Global Categories endpoint to check the leaf categories that belong to the required category version.​
+12052700​
+seller is inactived​
+12052704​
+seller id not exist​
+12052900​
+System error, try again later​
+​
+
+
+
+Đối tác TikTok Shop
+Get Global Categories 
+​
+Required scope:
+​seller.global_product.category.info
+​
+Retrieve all available product categories, regardless of market variations.​
+Product categories are updated frequently, so it's recommended to call the API in real time to ensure you are using the latest category data. Caching category data locally may result in using outdated information, leading to errors when creating global products. ​
+  
+​
+​
+/product/202309/global_categories​
+​
+Request​
+View common parameters​
+Header
+Properties​
+Type​
+Description​
+content-type​
+ Required​
+string​
+Allowed type: application/json​
+x-tts-access-token​
+ Required​
+string​
+The seller access_token value from Get Access Token, when user_type = 0. Follow this guide to get seller access_token.​
+​
+Query
+Properties​
+Type​
+Description​
+app_key​
+ Required​
+string​
+Every single app will have a unique key. Please use the specific key assigned to your app.​
+sign​
+ Required​
+string​
+Signature generated by gen algorithm. When you send API requests to TTS, you must sign them so that TTS can identify the senders. ​
+timestamp​
+ Required​
+int​
+Unix timestamp GMT (UTC+00:00). This timestamp is used across all API requests. Developers can use this convert to local time.​
+locale​
+string​
+The BCP-47 locale codes for displaying category information. ​
+Default: en-US​
+Possible values:​
+- de-DE​
+- en-GB​
+- en-IE​
+- en-US​
+- es-ES​
+- es-MX​
+- fr-FR​
+- id-ID​
+- it-IT​
+- ja-JP​
+- ms-MY​
+- th-TH​
+- vi-VN​
+- zh-CN​
+keyword​
+string​
+Filter categories by this keyword in local_name.​
+category_version​
+string​
+Filter categories by the category tree version.​
+Possible values based on region:​
+- US: v2, represents the 7-level category tree.​
+  Important: If the seller account contains an active US shop, you must pass v2 when using this API.​
+- Other regions: v1, represents the 3-level category tree.​
+Default: v1​
+​
+Example
+​
+Curl
+curl -X GET \
+ 'https://open-api.tiktokglobalshop.com/product/202309/global_categories?category_version=v1&timestamp=1623812664&app_key=38abcd&sign=5361235029d141222525e303d742f9e38aea052d10896d3197ab9d6233730b8c&locale=en-GB&keyword=electronics' \
+-H 'x-tts-access-token: TTP_pwSm2AAAAABmmtFz1xlyKMnwg74T2GJ5s0uQbS8jPjb_GkdFVCxPqzQXSyuyfXdQa0AqyDsea2tYFNVf4XeqgZHFfPyv0Vs659QqyLYfsGzanZ5XZAin3_ZkcIxxS0_In6u6XDeU96k' \
+-H 'content-type: application/json'
+
+GoNode.jsJava
+
+​
+​
+Response​
+Parameters
+Properties​
+Type​
+Description​
+code​
+int​
+The success or failure status code returned in API response.​
+message​
+string​
+The success or failure messages returned in API response. Reasons of failure will be described in the message.​
+request_id​
+string​
+Request log​
+data​
+object​
+Specific return information​
+​
+Example
+​
+JSON
+{
+  "code": 0,
+  "data": {
+    "categories": [
+      {
+        "id": "600001",
+        "parent_id": "0",
+        "local_name": "Home Supplies",
+        "is_leaf": false,
+        "permission_statuses": [
+          "AVAILABLE"
+        ]
+      }
+    ]
+  },
+  "message": "Success",
+  "request_id": "202203070749000101890810281E8C70B7"
+}
+​
+​
+Error Code​
+View common error codes​
+Code​
+Message​
+12052023​
+Category does not exist​
+12052217​
+Incorrect category version. For US shops or global sellers with an active US shop, specify 'category version=v2'. For shops in other regions specify 'category_version=v1'.​
+12052230​
+The specified category ID is not a leaf category, or it does not belong to the specified category version. Note: For US shops or global sellers with an active US shop, specify 'category_version=v2'. For shops in other regions, specify 'category_version=v1'. Use the Get Categories/Get Global Categories endpoint to check the leaf categories that belong to the required category version.​
+12052700​
+seller is inactived​
+12052704​
+seller id not exist​
+12052900​
+System error, try again later​
+​
+​
+
+​
+
+Đối tác TikTok Shop
+Product Information Issue Diagnosis 
+​
+Required scope:
+​serller.product.optimize
+​
+Diagnose multiple existing live (status: ACTIVATE) products to obtain information that helps you to improve the product content, enhancing product visibility and customer trust. The returned information includes:​
+- Listing quality information (available only for the US market).​
+- Issues with the current product details and the overall recommendations​
+- Auto-generated optimization suggestions targeted for specific product fields, including the title, description, and image.​
+Note: This API focuses solely on optimizing product visibility and does not evaluate whether your product meets listing requirements. Quality issues identified by this API do not block your product from being listed. To verify listing requirements, use the Check Product Listing API.​
+  
+​
+​
+/product/202405/products/diagnoses​
+​
+Request​
+View common parameters​
+Header
+Properties​
+Type​
+Description​
+content-type​
+ Required​
+string​
+Allowed type: application/json​
+x-tts-access-token​
+ Required​
+string​
+The seller access_token value from Get Access Token, when user_type = 0. Follow this guide to get seller access_token.​
+​
+Query
+Properties​
+Type​
+Description​
+shop_cipher​
+ Required​
+string​
+Use this property to pass shop information in requesting the API. Failure in passing the correct value when requesting the API for cross-border shops will return incorrect response. ​
+Get by API Get Authorization Shop​
+app_key​
+ Required​
+string​
+Every single app will have a unique key. Please use the specific key assigned to your app.​
+sign​
+ Required​
+string​
+Signature generated by gen algorithm. When you send API requests to TTS, you must sign them so that TTS can identify the senders. ​
+timestamp​
+ Required​
+int​
+Unix timestamp GMT (UTC+00:00). This timestamp is used across all API requests. Developers can use this convert to local time.​
+product_ids​
+ Required​
+[]string​
+The list of product IDs that you want to diagnose.​
+​
+Note:​
+- Max number of IDs: 200​
+- The product must be live (status: ACTIVATE)​
+​
+Example
+​
+Curl
+curl -X GET \
+ 'https://open-api.tiktokglobalshop.com/product/202405/products/diagnoses?shop_cipher=GCP_XF90igAAAABh00qsWgtvOiGFNqyubMt3&product_ids=12345678,123456&app_key=38abcd&sign=5361235029d141222525e303d742f9e38aea052d10896d3197ab9d6233730b8c&timestamp=1623812664' \
+-H 'x-tts-access-token: TTP_pwSm2AAAAABmmtFz1xlyKMnwg74T2GJ5s0uQbS8jPjb_GkdFVCxPqzQXSyuyfXdQa0AqyDsea2tYFNVf4XeqgZHFfPyv0Vs659QqyLYfsGzanZ5XZAin3_ZkcIxxS0_In6u6XDeU96k' \
+-H 'content-type: application/json'
+
+GoNode.jsJava
+
+​
+​
+Response​
+Parameters
+Properties​
+Type​
+Description​
+code​
+int​
+The success or failure status code returned in API response.​
+message​
+string​
+The success or failure messages returned in API response. Reasons of failure will be described in the message.​
+request_id​
+string​
+Request log​
+data​
+object​
+Specific return information​
+​
+Example
+​
+JSON
+{
+  "code": 0,
+  "data": {
+    "products": [
+      {
+        "id": "123456",
+        "listing_quality": {
+          "current_tier": "POOR",
+          "remaining_recommendations": 3
+        },
+        "diagnoses": [
+          {
+            "field": "TITLE",
+            "diagnosis_results": [
+              {
+                "code": "TITLE_LESS_THAN_40_CHARACTERS",
+                "how_to_solve": "Names must be at least 40 characters long and contain product-identifying information, such as \"hiking boots\" or \"lipstick\".",
+                "quality_tier": "GOOD"
+              }
+            ],
+            "suggestion": {
+              "seo_words": [
+                {
+                  "text": "dress"
+                }
+              ],
+              "smart_texts": [
+                {
+                  "text": "this is a good title"
+                }
+              ],
+              "images": [
+                {
+                  "height": 600,
+                  "width": 600,
+                  "uri": "tos-maliva-i-o3syd03w52-us/53b55d6e8cdf1f315affa7e70b45707d",
+                  "url": "https://p16-graph-va.ibyteimg.com/tos-maliva-i-1por3rr4fy-us/v2/53b55d6e8cdf1f315affa7e70b45707d~tplv-1por3rr4fy-image.webp",
+                  "optimized_uri": "tos-maliva-i-o3syd03w52-us/0266127022264e54ad2f639f5e0fb5e6",
+                  "optimized_url": "https://p16-graph-va.ibyteimg.com/tos-maliva-i-1por3rr4fy-us/v2/0266127022264e54ad2f639f5e0fb5e6~tplv-1por3rr4fy-image.webp"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "message": "Success",
+  "request_id": "202203070749000101890810281E8C70B7"
+}
+​
+​
+Error Code​
+View common error codes​
+Code​
+Message​
+12009014​
+seller no permission for product error​
+12019114​
+seller no permission for product error​
+12019120​
+product ids exceed limit​
+12052260​
+product id not exist​
+12052900​
+System error, try again later​
+​
+​
+
+
+Đối tác TikTok Shop
+Get Attributes 
+​
+Required scope:
+​seller.product.basic
+​
+Retrieve the standard built-in product and sales attributes for listing a product in a particular category based on your shop's location.​
+Products on TikTok Shop are grouped into categories predefined by TikTok Shop, and each category is associated with a standard set of product attributes and sales attributes.​
+- Sales attributes (e.g. size, color, length) define product variants and are optional if your product is straightforward and has no variants.​
+- Product attributes (e.g. manufacturer, country of origin, materials used) describe the product as a whole, regardless of variant. Some product attributes are mandatory based on listing policies.​
+Use this API to determine the mandatory and optional attributes before listing a product.​
+Note: It must be a leaf category that corresponds to the category tree type specified in the category_version property.​
+  
+​
+​
+/product/202309/categories/{category_id}/attributes​
+​
+Request​
+View common parameters​
+Header
+Properties​
+Type​
+Description​
+content-type​
+ Required​
+string​
+Allowed type: application/json​
+x-tts-access-token​
+ Required​
+string​
+The seller access_token value from Get Access Token, when user_type = 0. Follow this guide to get seller access_token.​
+​
+Query
+Properties​
+Type​
+Description​
+shop_cipher​
+ Required​
+string​
+Use this property to pass shop information in requesting the API. Failure in passing the correct value when requesting the API for cross-border shops will return incorrect response. ​
+Get by API Get Authorization Shop​
+app_key​
+ Required​
+string​
+Every single app will have a unique key. Please use the specific key assigned to your app.​
+sign​
+ Required​
+string​
+Signature generated by gen algorithm. When you send API requests to TTS, you must sign them so that TTS can identify the senders. ​
+timestamp​
+ Required​
+int​
+Unix timestamp GMT (UTC+00:00). This timestamp is used across all API requests. Developers can use this convert to local time.​
+locale​
+string​
+The BCP-47 locale codes for displaying the attribute information. ​
+Default: The default locale of your shop.​
+Possible values:​
+- de-DE​
+- en-GB​
+- en-IE​
+- en-US​
+- es-ES​
+- es-MX​
+- fr-FR​
+- id-ID​
+- it-IT​
+- ja-JP​
+- ms-MY​
+- pt-BR​
+- th-TH​
+- vi-VN​
+- zh-CN​
+category_version​
+string​
+The category tree version that corresponds to the specified category_id.​
+Possible values based on region:​
+- US: v2, represents the 7-level category tree.​
+  Important: For US shops, you must pass v2 when using this API.​
+- Other regions: v1, represents the 3-level category tree.​
+Default: v1​
+​
+Example
+​
+Curl
+curl -X GET \
+ 'https://open-api.tiktokglobalshop.com/product/202309/categories/600001/attributes?app_key=38abcd&sign=5361235029d141222525e303d742f9e38aea052d10896d3197ab9d6233730b8c&timestamp=1623812664&shop_cipher=GCP_XF90igAAAABh00qsWgtvOiGFNqyubMt3&locale=en-US&category_version=v1' \
+-H 'x-tts-access-token: TTP_pwSm2AAAAABmmtFz1xlyKMnwg74T2GJ5s0uQbS8jPjb_GkdFVCxPqzQXSyuyfXdQa0AqyDsea2tYFNVf4XeqgZHFfPyv0Vs659QqyLYfsGzanZ5XZAin3_ZkcIxxS0_In6u6XDeU96k' \
+-H 'content-type: application/json'
+
+GoNode.jsJava
+1234
+​
+​
+Response​
+Parameters
+Properties​
+Type​
+Description​
+code​
+int​
+The success or failure status code returned in API response.​
+message​
+string​
+The success or failure messages returned in API response. Reasons of failure will be described in the message.​
+request_id​
+string​
+Request log​
+data​
+object​
+Specific return information​
+​
+Example
+​
+JSON
+{
+  "code": 0,
+  "data": {
+    "attributes": [
+      {
+        "id": "100392",
+        "name": "Occasion",
+        "type": "PRODUCT_PROPERTY",
+        "is_requried": false,
+        "values": [
+          {
+            "id": "1001533",
+            "name": "Birthday"
+          }
+        ],
+        "value_data_format": "POSITIVE_INT_OR_DECIMAL",
+        "is_customizable": true,
+        "requirement_conditions": [
+          {
+            "condition_type": "VALUE_ID_MATCH",
+            "attribute_id": "101610",
+            "attribute_value_id": "1024358"
+          }
+        ],
+        "is_multiple_selection": true
+      }
+    ]
+  },
+  "message": "Success",
+  "request_id": "202203070749000101890810281E8C70B7"
+}
+​
+​
+Error Code​
+View common error codes​
+Code​
+Message​
+12052023​
+Category does not exist​
+12052024​
+Category is not final category​
+12052025​
+The category is invalid​
+12052217​
+Incorrect category version. For US shops or global sellers with an active US shop, specify 'category version=v2'. For shops in other regions specify 'category_version=v1'.​
+12052230​
+The specified category ID is not a leaf category, or it does not belong to the specified category version. Note: For US shops or global sellers with an active US shop, specify 'category_version=v2'. For shops in other regions, specify 'category_version=v1'. Use the Get Categories/Get Global Categories endpoint to check the leaf categories that belong to the required category version.​
+12052704​
+seller id not exist​
+12052900​
+System error, try again later​
+​
+​
+
+
+Đối tác TikTok Shop
+Get Brands 
+​
+Required scope:
+​seller.product.basic
+​
+Retrieve all available brands for your shop, including the built-in brands and any custom brands created using the Create Custom Brands API. Pass the returned brand ID when creating or editing a product to associate the brand with the product.​
+- To check if a brand is fully authorized for use in a specific product category, specify the category ID.​
+- To obtain the full list of brands that your shop can potentially use and their authorization status, omit the category ID. We recommend that you specify the brand name to narrow down the list of brands returned.​
+Key concept​
+Whether you can select and display a brand depends on the brand's authorization status, the categories authorized for the brand, and whether the brand is classified as T1 (internationally renowned brands that require prior brand authorization).​
+- Brand selection rules: You can only select the following types of brands during product creation/editing.​
+   - Authorized brands which contain the desired category (authorized_status=AUTHORIZED and brand_status=AVAILABLE)​
+   - Unauthorized non-T1 brands (authorized_status=UNAUTHORIZED and is_t1_brand=false) ​
+- Brand display rules: Note however that brands will only appear on the product display page if the brand is authorized (authorized_status=AUTHORIZED) and available in the desired category (brand_status=AVAILABLE). This means that you need to obtain brand authorization for unauthorized non-T1 brands before they can be displayed. Obtain brand authorization or add categories to an authorized brand through TikTok Shop Seller Center > Qualification Center > Brand qualification.​
+For Tokopedia sellers: You can select and display any returned brand on Tokopedia regardless of these rules.​
+  
+​
+​
+/product/202309/brands​
+​
+Request​
+View common parameters​
+Header
+Properties​
+Type​
+Description​
+content-type​
+ Required​
+string​
+Allowed type: application/json​
+x-tts-access-token​
+ Required​
+string​
+The seller access_token value from Get Access Token, when user_type = 0. Follow this guide to get seller access_token.​
+​
+Query
+Properties​
+Type​
+Description​
+shop_cipher​
+ Required​
+string​
+Use this property to pass shop information in requesting the API. Failure in passing the correct value when requesting the API for cross-border shops will return incorrect response. ​
+Get by API Get Authorization Shop​
+app_key​
+ Required​
+string​
+Every single app will have a unique key. Please use the specific key assigned to your app.​
+sign​
+ Required​
+string​
+Signature generated by gen algorithm. When you send API requests to TTS, you must sign them so that TTS can identify the senders. ​
+timestamp​
+ Required​
+int​
+Unix timestamp GMT (UTC+00:00). This timestamp is used across all API requests. Developers can use this convert to local time.​
+category_id​
+string​
+Specify a category ID to show the availability of authorized brands in the category.​
+Note: Specify this value to obtain an accurate list of brands that you can use in a category.​
+is_authorized​
+bool​
+Filter results by the brand authorization status.​
+Possible values:​
+- 1: Returns only authorized brands​
+- 0: Returns all brands​
+brand_name​
+string​
+Filter results to include brand names that begin with the specified value.​
+page_size​
+ Required​
+int​
+The number of results to be returned per page.​
+Valid range: [1-100]​
+page_token​
+string​
+An opaque token used to retrieve the next page of a paginated result set. Retrieve this value from the result of the next_page_token from a previous response. It is not needed for the first page.​
+category_version​
+string​
+The category tree version that corresponds to the specified category_id.​
+Possible values based on region:​
+- US: v2, represents the 7-level category tree.​
+  Important: For US shops, you must pass v2 when using this API.​
+- Other regions: v1, represents the 3-level category tree.​
+Default: v1​
+​
+Example
+​
+Curl
+curl -X GET \
+ 'https://open-api.tiktokglobalshop.com/product/202309/brands?is_authorized=1&page_size=100&page_token=b2Zmc2V0PTAK&app_key=38abcd&shop_cipher=GCP_XF90igAAAABh00qsWgtvOiGFNqyubMt3&category_id=600006&category_version=v1&sign=5361235029d141222525e303d742f9e38aea052d10896d3197ab9d6233730b8c&timestamp=1623812664&brand_name=Teas' \
+-H 'x-tts-access-token: TTP_pwSm2AAAAABmmtFz1xlyKMnwg74T2GJ5s0uQbS8jPjb_GkdFVCxPqzQXSyuyfXdQa0AqyDsea2tYFNVf4XeqgZHFfPyv0Vs659QqyLYfsGzanZ5XZAin3_ZkcIxxS0_In6u6XDeU96k' \
+-H 'content-type: application/json'
+
+GoNode.jsJava
+
+​
+​
+Response​
+Parameters
+Properties​
+Type​
+Description​
+code​
+int​
+The success or failure status code returned in API response.​
+message​
+string​
+The success or failure messages returned in API response. Reasons of failure will be described in the message.​
+request_id​
+string​
+Request log​
+data​
+object​
+Specific return information​
+​
+Example
+​
+JSON
+{
+  "code": 0,
+  "data": {
+    "brands": [
+      {
+        "id": "7082427311584347905",
+        "name": "Teas",
+        "authorized_status": "AUTHORIZED",
+        "is_t1_brand": true,
+        "brand_status": "AVAILABLE"
+      }
+    ],
+    "total_count": 10000,
+    "next_page_token": "b2Zmc2V0PTAK"
+  },
+  "message": "Success",
+  "request_id": "202203070749000101890810281E8C70B7"
+}
+​
+​
+Error Code​
+View common error codes​
+Code​
+Message​
+12019108​
+page number is invalid​
+12019109​
+page size is invalid​
+12019123​
+product of pageSize and pageNumber exceeds the maximum limit​
+12019124​
+pageSize and pageNumber need to be used together​
+12052023​
+Category does not exist​
+12052217​
+Incorrect category version. For US shops or global sellers with an active US shop, specify 'category version=v2'. For shops in other regions specify 'category_version=v1'.​
+12052230​
+The specified category ID is not a leaf category, or it does not belong to the specified category version. Note: For US shops or global sellers with an active US shop, specify 'category_version=v2'. For shops in other regions, specify 'category_version=v1'. Use the Get Categories/Get Global Categories endpoint to check the leaf categories that belong to the required category version.​
+12052700​
+seller is inactived​
+12052704​
+seller id not exist​
+12052900​
+System error, try again later​
+​
+​
+
+Phần Order API Reference 
+
+
+Đối tác TikTok Shop
+Order API overview
+Context
+The Orders API helps you obtain information about orders.
+You may programmatically GET an Order List, and GET the Order Details from a specific Order.
+Additionally, you may also subscribe to the Order Status Webhook to be notified regarding order status changes.
+
+Important Concepts
+Order
+An order is created when the buyer clicks on the Place Order button. Please note that when the order is created, the buyer has yet to make the payment, therefore the status of the order is UNPAID. Once an order is created, the seller should deduct or hold inventory from their inventory management system accordingly.
+
+Order Structure
+
+Order ID: An Order ID is a unique identifier for each Order that is created by a Buyer.
+
+SKU ID: An order line contains 1 or more items of products of the same Stock Keeping Unit. Each SKU is identified by its unique SKU ID. A SKU can be thought of as a "variant".
+
+Order Line Item id: Each single item in a line is identified by its unique order line item id.
+
+
+Example- A buyer places an order for 5 products total: 2 Red Large T-shirts, 2 Red Medium T-shirts, and 1 size 10 black shoes:
+
+Order	SKU	Line item
+Order ID: 12345678
+Red Large T Shirt
+1x Red Large T Shirt (item 1)
+1x Red Large T Shirt (item 2)
+Red Medium t shirt
+1x Red Medium t shirt (item 3)
+1x Red Medium t shirt (item 4)
+Size 10 Black Shoes
+1 size 10 black shoes (item 5)
+Order Status
+
+Order Status Definition
+Status	Description
+UNPAID
+The order has been placed but payment has been authorized.
+ON_HOLD
+After payment is completed for the order, the order transitions into the ON_HOLD status during the remorse period. The remorse period allows the buyer to cancel the order without seller approval. ON_HOLD orders are not allowed to be fulfilled.
+AWAITING_SHIPMENT
+Awaiting the seller to place a logistic order.
+PARTIALLY_SHIPPING
+One or more (but not all) items in the order have been shipped.
+AWAITING_COLLECTION
+The logistics order was placed. At least one item in the order is still waiting to be collected by the carrier.
+IN_TRANSIT
+All items have been collected by the carrier. At least one package is has yet to be delivered to the buyer.
+DELIVERED
+All items have been delivered to the buyer.
+COMPLETED
+The order has been completed. Completed orders can no longer be returned or refunded.
+CANCELLED
+The order has been canceled. The order can be canceled by the buyer, the seller, the TikTok SYSTEM, or a TikTok OPERATOR.
+
+* Buyer: Buyers can change their mind and cancel within 1 hour post purchase, known as 1-hour remorse. Past this period, Buyer can still request a cancellation, but it is subject to Seller approval.
+* Seller: Sellers can cancel an order, for example if they are out of stock of the product.
+* SYSTEM: Orders may be cancelled by the TikTok system automatically based on TikTok policies. For example, this can happen if a package is lost in transit, and TikTok detects that the tracking ID has not progressed for over 7 days.
+* OPERATOR: Orders may also be cancelled by TikTok customer service for a variety of reasons.
+
+For a comprehensive list of supported cancellation reasons, please visit this page.
+Order Status Transitions
+From UNPAID to ON_HOLD
+Trigger: When the order is paid, the order status updates to ON_HOLD.
+Trigger initiator: Buyer
+Note:
+For ON_HOLD orders, the recipient address and buyer information are not available via the Order API.
+From ON_HOLD to AWAITING_SHIPMENT
+Trigger: After the remorse window(1 hour after payment), the order status changes to AWAITING_SHIPMENT.
+Trigger initiator: TiKTok
+Note: This step occurs automatically.
+From AWAITING_SHIPMENT to PARTIALLY_SHIPPING
+Trigger: When some item(s) in the order but not all have been shipped.
+Trigger initiator: Seller
+Note: only split shipments have this status. If the seller ships all item(s) in the order within one package, this status is skipped.
+From AWAITING_SHIPMENT or PARTIALLY_SHIPPING to AWAITING_COLLECTION
+Scenario A(seller ships all items in one package) : AWAITING_SHIPMENT to AWAITING_COLLECTION
+Trigger: Seller calls API to ship all the item(s) in the order.
+Trigger initiator: Seller
+Scenario B(Seller split order to ship): PARTIALLY_SHIPPING to AWAITING_COLLECTION
+Trigger: Seller calls API to ship the unshipped item in the order. Only all the items have been arranged shipment, then the order status will be updated to AWAITING_COLLECTION.
+Trigger initiator: Seller
+Note: Once the seller arranges shipment, the buyer can not cancel request without seller approval.
+From AWAITING_COLLECTION to IN_TRANSIT
+Scenario A(Seller ships all items in one package)
+Trigger: Once TikTok obtains the shipment tracking information of packages from the carrier system, the order status will be updated to IN_TRANSIT from AWAITING_COLLECTION.
+Trigger initiator: TikTok
+Scenario B(Seller split order to ship)
+Trigger: Once Tiktok obtains the shipment tracking information of all packages from the carrier system, the order status will be updated to IN_TRANSIT from AWAITING_COLLECTION.
+Note: TikTok obtains shipment tracking information from various tracking data providers. Depending on the performance of the provider, the tracking information may be delayed. If the shipment tracking information delay is over 24 hours, please contact TikTok.
+From IN_TRANSIT to DELIVERED
+Trigger: The package has been successfully delivered.
+Trigger initiator: TikTok
+From DELIVERED to COMPLETED.
+Scenario A(Buyer requests refund or return)
+Trigger: Buyers can initiate a multi-time return or refund request. Once the order amount is a full refund to the buyer, the order status will be updated to COMPLETED.
+Trigger initiator: Seller/TikTok
+Scenario B(Seller initiate refund or return)
+Trigger: Seller can initiate a multi-time return or refund. Once the order amount is a full refund to the buyer, the order status will be updated to COMPLETED.
+Trigger initiator: Seller
+Scenario C(TikTok)
+Trigger: Order available refund amount fully be refunded before the after-sales period is over.
+Trigger initiator: TikTok
+Note: Different region and business mode (Local to Local or cross border modes) after-sales period is different. Please refer to the seller academy for applicable after-sales policies.
+From UNPAID to CANCELLED
+Scenario A(Buyer cancel the order)：
+Trigger: Buyer cancel UNPAID status order.
+Trigger initiator: Buyer
+Scenario B(TikTok cancel the order)：
+Trigger: The buyer has not paid for the order within the specified time(different region has different setting).
+Trigger initiator: TikTok
+From ON_HOLD to CANCELLED
+Scenario A(Buyer cancel the order)
+Trigger: Buyer cancel order in remorse window.
+Trigger initiator: Buyer
+Scenario B(Seller cancel the order)
+Trigger: The seller cancels the order due to being out of stock.
+Trigger initiator: Seller
+Note: The order status will only updated to 'CANCELLED' when all items in the order have been cancelled.
+From AWAITING_SHIPMENT to CANCELLED
+Scenario A(Buyer cancel the order)
+Trigger: Buyer initiates cancel request and seller accepts.
+Trigger initiator: Buyer
+Scenario B(Seller cancel the order)
+Trigger: Seller cancels the order due to being out of stock.
+Trigger initiator: Seller
+Scenario C(TikTok cancel the order)
+Trigger: TikTok cancels the order, because the seller doesn't arrange shipment before TikTok requires time.
+Trigger initiator: TikTok
+Note: The order status will only updated to 'CANCELLED' when all items in the order have been cancelled.
+From PARTIALLY_SHIPPING to CANCELLED
+Trigger: Buyer cancels the unshipped and Tiktok cancels the shipped item
+Trigger initiator: Buyer and Tiktok
+Note: The order status will only updated to 'CANCELLED' when all items in the order have been cancelled.
+From AWAITING_COLLECTION to CANCELLED
+Scenario A(Seller cancels the order)
+Trigger: Seller cancels the order. If order has been split, order status will update to CANCELLED when all the split order been canceled.
+Trigger initiator: seller
+Scenario B(Tiktok cancels the order)
+Trigger: Tiktok cancels the order because TikTok can not obtain shipment tracking information from various tracking data providers before TikTok requires time. If order has been split, order status will update to CANCELLED when all the split order been canceled.
+Trigger initiator: Tiktok
+Note: Only the US market allows sellers to cancel order under AWAITING_COLLECTION status. The order status will only updated to 'CANCELLED' when all items in the order have been cancelled.
+From IN_TRANSIT to CANCELLED
+Trigger: Tiktok cancels the order. If order has been split, order status will update to CANCELLED when all the split order been canceled.
+Trigger initiator: Tiktok
+Note: this situation commonly occurs when the package is lost during transit or the buyer refuses to receive package. The order status will only updated to 'CANCELLED' when all items in the order have been cancelled.
+From AWAITING_COLLECTION to COMPLETED
+Trigger: Buyer initiates refund request and seller accept
+Trigger initiator: Buyer
+Note: Once the order amount is fully refunded, order status will change to COMPLETED. The order status will only updated to 'CANCELLED' when all items in the order have been cancelled.
+From IN_TRANSIT to COMPLETED
+Scenario A(Buyer initiate refund request)
+
+Trigger: Buyer initiates refund request and seller accepts.
+Trigger initiator: Buyer
+Scenario B (Tiktok auto approve buyer refund request)
+
+Trigger: Buyer initiates refund request. When the time exceeds the latest estimated delivery time, Tiktok will auto approve the buyer refund request.
+Trigger initiator: Tiktok
+Note: Once the order amount is fully refunded, order status will change to COMPLETED. The order status will only updated to 'CANCELLED' when all items in the order have been cancelled.
+
+Fulfillment Types and Delivery Options
+Image
+
+Fulfillment Types
+TikTok Shop offers two fulfillment types:
+
+FULFILLMENT_BY_SELLER: The seller fulfills orders directly from their own warehouses. In this model, the seller is responsible for storing, packaging, and shipping the products to customers.
+FULFILLMENT_BY_TIKTOK: The seller stocks their products in Tiktok's fulfillment centers. Tiktok is responsible for storing, picking, packing, and shipping the products to customers.
+Shipping type
+For FULFILLMENT_BY_SELLER, there are two shipping types:
+
+TikTok Shipping: Tiktok provides shipping services. The seller obtains shipping labels from Tiktok.
+
+Seller Shipping: The seller arranges shipping.
+
+Recipient Address
+Recipient Information Redaction
+In the following scenarios, the recipient's address and personal information will be redacted.
+
+Order fulfillment_type = FULFILLMENT_BY_TIKTOK
+Order fulfillment_type = FULFILLMENT_BY_SELLER and shipping type = TikTok
+Localized Recipient Address
+Different countries may have different address hierarchy and naming conventions. To accommodate such differences, use 'district_info_list' to obtain address information expressed in the local address hierarchy and naming convention.
+
+Order SLA (Service Level Agreement) Information
+Currently, Tiktok shop has the following Service Level Agreement concept.
+rts_sla: "RTS" is the abbreviation for Ready To Ship. RTS marks the time when the order status transitions to AWAITING_COLLECTION. rts_sla indicates the time period within which TikTok requires the seller to ship the order. If the order status has not transitioned to AWAITING_COLLECTION before rts_sla has passed, this constitutes a late dispatch, which will increase the seller's late dispatch rate.
+tts_sla: "TTS" stands for Transfer To Ship. TTS marks the time when the order status transitions to IN_TRANSIT. tts_sla specifies the time period within which TikTok requires the packages to be collected by the carrier. If the order status has not transitioned to IN_TRANSIT before tts_sla has passed, this constitutes a late dispatch, which will increase the seller's late dispatch rate.
+delivery_sla: The time period within which TikTok requires the packages to be delivered to the buyer.
+cancel_order_sla: If the seller fails to complete the shipment by this time point, the order will be automatically canceled by the platform. TikTok might cancel the order, if the order doesn't arrange the shipment before rts_sla or the order can not obtain the tracking information before tts_sla. Policy details, please see the Seller Academy.
+
+TikTok Shop Marketplace Policies
+As a Marketplace, TikTok Shop imposes certain policies on sellers for the benefit of both buyers and sellers.
+
+Cancel Policy
+Buyer cancel order within 1-hour:
+
+Buyers are able to cancel their order within one hour for no charge: this is known as the 1-hour remorse period. This is required for all shops. We simply recommend that sellers wait one hour before beginning fulfillment of the Order, and for all apps and services to implement this 1-hour remorse period. In markets where the ON_HOLD status is available, this 1-hour remorse window is the ON_HOLD status.
+Buyer request cancel after 1-hour:
+
+After 1-hour, buyer cancel request required to review by seller. The seller can accept or decline the cancel request.
+
+Order Fulfillment SLA(Service Level Agreement) Policy
+The seller should arrange shipment before rts_sla time.
+The shipping service provider must update the tracking information of package collection before the tts_sla time.
+If the Seller is not able to fulfill an Order with a valid shipping ID before cancel_order_sla, the Order will be cancelled and the Buyer refunded.
+Frequently Asked Questions
+How do I get order ID from?
+To utilize the Orders API, you must subscribe to the Orders Webhook. Click here for more details
+My item is partially out of stock. Can I ship only part of the Order?
+Currently, we don't provide this functionality. If this is a must have requirement, reach out to our CST team and we will see if we can get you access to a beta API which may be able to address this.
+Can I completely cancel an order?
+Yes, you can call Cancel Order API to cancel order.
+How do I ship a new order which is a replacement for an existing one (ie package lost)?
+Currently, we don't have replacement functionality. If this is a must have requirement, please ask buyer to cancel the order and replace an order.
+How can I check the order line item information?
+You can call Get Order Detail API to obtain it from line_items.
+How can I know is the order fulfilled by Tiktok?
+You can call Get Order Detail API to obtain it from fulfillment_type.
+How can I know the order shipping service offered by platform or seller?
+You can call Get Order Detail API to obtain it from delivery_option_id.
+How can I know whether the order line item is gift?
+You can call Get Order Detail API to obtain it from is_gift.
+Can a Buyer place an order from multiple shops?
+Yes! Buyers can place an order from multiple shops at once. For example, if I buy some products from Shop A, and some products from Shop B, TTS will actually create 2 orders.
+
+
+
+
+Đối tác TikTok Shop
+Get Order List 
+​
+Required scope:
+​seller.order.info
+​
+Returns a list of orders created or updated during the timeframe indicated by the specified parameters. You can also apply a range of filtering criteria to narrow the list of orders returned, such as order status, delivery option type, and buyer user ID.​
+  
+​
+​
+POST  /order/202309/orders/search​
+​
+Request​
+View common parameters​
+Header
+Properties​
+Type​
+Description​
+content-type​
+ Required​
+string​
+Allowed type: application/json​
+x-tts-access-token​
+ Required​
+string​
+The seller access_token value from Get Access Token, when user_type = 0. Follow this guide to get seller access_token.​
+​
+Query
+Properties​
+Type​
+Description​
+shop_cipher​
+ Required​
+string​
+Use this property to pass shop information in requesting the API. Failure in passing the correct value when requesting the API for cross-border shops will return incorrect response. ​
+Get by API Get Authorization Shop​
+app_key​
+ Required​
+string​
+Every single app will have a unique key. Please use the specific key assigned to your app.​
+sign​
+ Required​
+string​
+Signature generated by gen algorithm. When you send API requests to TTS, you must sign them so that TTS can identify the senders. ​
+timestamp​
+ Required​
+int​
+Unix timestamp GMT (UTC+00:00). This timestamp is used across all API requests. Developers can use this convert to local time.​
+page_size​
+ Required​
+int​
+The number of results to be returned per page. Default: 20. Valid range: [1-100].​
+sort_order​
+string​
+The sort order for the sort_field parameter. Default: DESC​
+Possible values:​
+- ASC: Ascending order​
+- DESC: Descending order​
+page_token​
+string​
+An opaque token used to retrieve the next page of a paginated result set. Retrieve this value from the result of the next_page_token from a previous response. It is not needed for the first page.​
+sort_field​
+string​
+The returned results will be sorted by the specified field. ​
+Default: create_time​
+Possible values:​
+- create_time​
+- update_time​
+​
+Specify the order for sorting the returned results by using the sort_order parameter.​
+​
+Body
+Properties​
+Type​
+Description​
+order_status​
+string​
+Specific order status.​
+Available values:​
+- UNPAID: The order has been placed, but payment has not been completed.​
+- ON_HOLD: The order has been accepted and is awaiting fulfillment. The buyer may still cancel without the seller’s approval. If order_type=PRE_ORDER, the product is still awaiting release so payment will only be authorized 1 day before the release, but the seller should start preparing for the release.​
+- AWAITING_SHIPMENT: The order is ready to be shipped, but no items have been shipped yet.​
+- PARTIALLY_SHIPPING: Some items in the order have been shipped, but not all.​
+- AWAITING_COLLECTION: Shipping has been arranged, but the package is waiting to be collected by the carrier.​
+- IN_TRANSIT: The package has been collected by the carrier and delivery is in progress.​
+- DELIVERED: The package has been delivered to the buyer.​
+- COMPLETED: The order has been completed, and no further returns or refunds are allowed.​
+- CANCELLED: The order has been cancelled.​
+create_time_ge​
+int​
+Filter orders to show only those that are created on or after the specified date and time. Unix timestamp.​
+​
+Note:​
+create_time_ge and create_time_lt together constitute the creation time filter condition.​
+- If create_time_ge is filled but create_time_lt is empty, create_time_lt will default to the current time.​
+- If create_time_lt is filled but create_time_ge is empty, create_time_ge will default to the earliest shop time.​
+create_time_lt​
+int​
+Filter orders to show only those that are created before the specified date and time. Unix timestamp.​
+Refer to notes in create_time_ge for more usage information.​
+​
+update_time_ge​
+int​
+Filter orders to show only those that are updated on or after the specified date and time. Unix timestamp.​
+​
+Note:​
+update_time_ge and update_time_lt together define the update time filter condition.​
+- If update_time_ge is filled but update_time_lt is empty, update_time_lt will default to the current time.​
+- If update_time_lt is filled but update_time_ge is empty, update_time_ge will default to the earliest shop time.​
+update_time_lt​
+int​
+Filter orders to show only those that are updated before the specified date and time. Unix timestamp.​
+Refer to notes in update_time_ge for more usage information.​
+shipping_type​
+string​
+The delivery method.​
+- TIKTOK: Shipping service provided by TikTok. The seller should obtain a shipping label from TikTok.​
+- SELLER: Seller provides shipping, including through 3rd party fulfillment providers on behalf of the seller. ​
+buyer_user_id​
+string​
+Buyer user ID.​
+is_buyer_request_cancel​
+bool​
+Whether the buyer has initiated an order cancellation request.​
+warehouse_ids​
+[]string​
+Filter orders by pickup/sales warehouse IDs.​
+Applicable only if the multi-warehouse feature is enabled.​
+Max count: 100​
+​
+Example
+​
+Curl
+curl -X POST \
+ 'https://open-api.tiktokglobalshop.com/order/202309/orders/search?sort_field=create_time&page_size=20&sign=5361235029d141222525e303d742f9e38aea052d10896d3197ab9d6233730b8c&timestamp=1623812664&shop_cipher=GCP_XF90igAAAABh00qsWgtvOiGFNqyubMt3&sort_order=ASC&page_token=6AsPQsUMvH3RkchNUPPh22NROHkE0D8pmq/N5M1kHYcZmtRyv9aVrNv65W7Q6tFA+7D1ud64MPNz5OaT&app_key=38abcd' \
+-H 'x-tts-access-token: TTP_pwSm2AAAAABmmtFz1xlyKMnwg74T2GJ5s0uQbS8jPjb_GkdFVCxPqzQXSyuyfXdQa0AqyDsea2tYFNVf4XeqgZHFfPyv0Vs659QqyLYfsGzanZ5XZAin3_ZkcIxxS0_In6u6XDeU96k' \
+-H 'content-type: application/json' \
+-d '{
+  "order_status": "UNPAID",
+  "create_time_ge": 1623812664,
+  "create_time_lt": 1623812664,
+  "update_time_ge": 1623812664,
+  "update_time_lt": 1623812664,
+  "shipping_type": "TIKTOK",
+  "buyer_user_id": "7213489962827123654",
+  "is_buyer_request_cancel": false,
+  "warehouse_ids": [
+    "7000714532876273888",
+    "7000714532876273666"
+  ]
+}'
+
+Go
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+func order202309GetOrderListPost() {
+    configuration := apis.NewConfiguration()
+    configuration.AddAppInfo(appKey, appSecret)
+    apiClient := apis.NewAPIClient(configuration)
+    request := apiClient.OrderV202309API.Order202309OrdersSearchPost(context.Background())
+    request = request.XTtsAccessToken("your access token")
+    request = request.ContentType("application/json")
+    request = request.PageSize(20)
+    request = request.SortOrder("ASC")
+    request = request.PageToken("6AsPQsUMvH3RkchNUPPh22NROHkE0D8pmq/N5M1kHYcZmtRyv9aVrNv65W7Q6tFA+7D1ud64MPNz5OaT")
+    request = request.SortField("create_time")
+    request = request.ShopCipher("your shop cipher")
+    order202309GetOrderListRequestBody := order_v202309.NewOrder202309GetOrderListRequestBody()
+    order202309GetOrderListRequestBody.SetOrderStatus("UNPAID")
+    order202309GetOrderListRequestBody.SetCreateTimeGe(1623812664)
+    order202309GetOrderListRequestBody.SetCreateTimeLt(1623812664)
+    order202309GetOrderListRequestBody.SetUpdateTimeGe(1623812664)
+    order202309GetOrderListRequestBody.SetUpdateTimeLt(1623812664)
+    order202309GetOrderListRequestBody.SetShippingType("TIKTOK")
+    order202309GetOrderListRequestBody.SetBuyerUserId("7213489962827123654")
+    order202309GetOrderListRequestBody.SetIsBuyerRequestCancel(false)
+    order202309GetOrderListRequestBodyWarehouseIdsList := []string{"7000714532876273888","7000714532876273666"}
+    order202309GetOrderListRequestBody.SetWarehouseIds(order202309GetOrderListRequestBodyWarehouseIdsList)
+    request = request.Order202309GetOrderListRequestBody(*order202309GetOrderListRequestBody)
+    resp, httpResp, err := request.Execute()
+    if err != nil || httpResp.StatusCode != 200 {
+        fmt.Printf("productsRequest err:%v resbody:%s", err, httpResp.Body)
+        return
+    }
+    if resp == nil {
+        fmt.Printf("response is nil")
+        return
+    }
+    if resp.GetCode()!= 0 {
+        fmt.Printf("response business is error, errorCode:%d errorMessage:%s", resp.GetCode(), resp.GetMessage())
+        return
+    }
+    respDataJson, _ := json.MarshalIndent(resp.GetData(), "", "  ")
+    fmt.Println("response data:", string(respDataJson))
+    return
+}
+
+
+Node.js
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+async function order202309GetOrderListPost() {
+    const order202309GetOrderListRequestBody = new Order202309GetOrderListRequestBody();
+    order202309GetOrderListRequestBody.orderStatus = "UNPAID";
+    order202309GetOrderListRequestBody.createTimeGe = 1623812664;
+    order202309GetOrderListRequestBody.createTimeLt = 1623812664;
+    order202309GetOrderListRequestBody.updateTimeGe = 1623812664;
+    order202309GetOrderListRequestBody.updateTimeLt = 1623812664;
+    order202309GetOrderListRequestBody.shippingType = "TIKTOK";
+    order202309GetOrderListRequestBody.buyerUserId = "7213489962827123654";
+    order202309GetOrderListRequestBody.isBuyerRequestCancel = false;
+    order202309GetOrderListRequestBody.warehouseIds = ["7000714532876273888","7000714532876273666"];
+    const result = await client.api.OrderV202309Api.OrdersSearchPost(20, "your access token", "application/json", "ASC", "6AsPQsUMvH3RkchNUPPh22NROHkE0D8pmq/N5M1kHYcZmtRyv9aVrNv65W7Q6tFA+7D1ud64MPNz5OaT", "create_time", "your shop cipher", order202309GetOrderListRequestBody);
+    console.log('response: ', JSON.stringify(result, null, 2));
+}
+
+
+Java
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+public void order202309GetOrderListPost() throws Exception {
+    ApiClient defaultClient = Configuration.getDefaultApiClient()
+            .setAppkey("your appKey")
+            .setSecret("your secret")
+            .setBasePath("https://open-api.tiktokglobalshop.com");
+    OrderV202309Api apiInstance = new OrderV202309Api(defaultClient);
+    GetOrderListRequestBody getOrderListRequestBody = new GetOrderListRequestBody();
+    getOrderListRequestBody.setOrderStatus("UNPAID");
+    getOrderListRequestBody.setCreateTimeGe(1623812664L);
+    getOrderListRequestBody.setCreateTimeLt(1623812664L);
+    getOrderListRequestBody.setUpdateTimeGe(1623812664L);
+    getOrderListRequestBody.setUpdateTimeLt(1623812664L);
+    getOrderListRequestBody.setShippingType("TIKTOK");
+    getOrderListRequestBody.setBuyerUserId("7213489962827123654");
+    getOrderListRequestBody.setIsBuyerRequestCancel(false);
+    List<String> getOrderListRequestBodyWarehouseIdsList = new ArrayList<>(Arrays.asList("7000714532876273888","7000714532876273666"));
+    getOrderListRequestBody.setWarehouseIds(getOrderListRequestBodyWarehouseIdsList);
+    GetOrderListResponse result = apiInstance.order202309OrdersSearchPost(20, "your access token", "application/json", "ASC", "6AsPQsUMvH3RkchNUPPh22NROHkE0D8pmq/N5M1kHYcZmtRyv9aVrNv65W7Q6tFA+7D1ud64MPNz5OaT", "create_time", "your shop cipher", getOrderListRequestBody);
+    System.out.println(result);
+}
+
+​
+​
+Response​
+Parameters
+Properties​
+Type​
+Description​
+code​
+int​
+The success or failure status code returned in API response.​
+message​
+string​
+The success or failure messages returned in API response. Reasons of failure will be described in the message.​
+request_id​
+string​
+Request log​
+data​
+object​
+Specific return information​
+​
+Example
+​
+JSON
+{
+  "code": 0,
+  "data": {
+    "next_page_token": "6AsPQsUMvH3RkchNUPPh22NROHkE0D8pmq/N5M1kHYcZmtRyv9aVrNv65W7Q6tFA+7D1ud64MPNz5OaT",
+    "total_count": 22113,
+    "orders": [
+      {
+        "id": "576461413038785752",
+        "buyer_message": "Please ship asap!",
+        "cancellation_initiator": "SELLER",
+        "shipping_provider_id": "6617675021119438849",
+        "create_time": 1619611561,
+        "shipping_provider": "TT Virtual express",
+        "packages": [
+          {
+            "id": "1152321127278713123"
+          }
+        ],
+        "payment": {
+          "currency": "IDR",
+          "sub_total": "5000",
+          "shipping_fee": "5000",
+          "seller_discount": "5000",
+          "platform_discount": "5000",
+          "total_amount": "5000",
+          "original_total_product_price": "5000",
+          "original_shipping_fee": "5000",
+          "shipping_fee_seller_discount": "5000",
+          "shipping_fee_platform_discount": "5000",
+          "shipping_fee_cofunded_discount": "5000",
+          "tax": "5000",
+          "small_order_fee": "3000",
+          "shipping_fee_tax": "11",
+          "product_tax": "21.3",
+          "retail_delivery_fee": "1.28",
+          "buyer_service_fee": "1000",
+          "handling_fee": "1000",
+          "shipping_insurance_fee": "1000",
+          "item_insurance_fee": "1000"
+        },
+        "recipient_address": {
+          "full_address": "1199 Coleman Ave San Jose, CA 95110",
+          "phone_number": "(+1)213-***-1234",
+          "name": "David Kong",
+          "first_name": "David",
+          "last_name": "Kong",
+          "first_name_local_script": "ジョン",
+          "last_name_local_script": "ドゥ",
+          "address_detail": "Unit one building 8",
+          "address_line1": "TikTok 5800 bristol Pkwy",
+          "address_line2": "Suite 100",
+          "address_line3": " ",
+          "address_line4": " ",
+          "district_info": [
+            {
+              "address_level_name": "Country",
+              "address_name": "United Kingdom",
+              "address_level": "L0"
+            }
+          ],
+          "delivery_preferences": {
+            "drop_off_location": "Front Door"
+          },
+          "postal_code": "95110",
+          "region_code": "US",
+          "post_town": "Ribbleton"
+        },
+        "status": "UNPAID",
+        "fulfillment_type": "FULFILLMENT_BY_SELLER",
+        "delivery_type": "HOME_DELIVERY",
+        "paid_time": 1619611563,
+        "rts_sla_time": 1619611688,
+        "tts_sla_time": 1619611761,
+        "cancel_reason": "Pricing error",
+        "update_time": 1619621355,
+        "payment_method_name": "CCDC",
+        "rts_time": 1619611563,
+        "tracking_number": "JX12345",
+        "split_or_combine_tag": "COMBINED",
+        "has_updated_recipient_address": false,
+        "cancel_order_sla_time": 1619621355,
+        "warehouse_id": "6955005333819123123",
+        "request_cancel_time": 1678389618,
+        "shipping_type": "TIKTOK",
+        "user_id": "7021436810468230477",
+        "seller_note": "seller note",
+        "delivery_sla_time": 1678389618,
+        "is_cod": false,
+        "delivery_option_id": "7091146663229654785",
+        "cancel_time": 1678389618,
+        "need_upload_invoice": "NEED_INVOICE",
+        "delivery_option_name": "Standard Shipping",
+        "cpf": "3213-31231412",
+        "line_items": [
+          {
+            "id": "577086512123755123",
+            "sku_id": "2729382476852921560",
+            "combined_listing_skus": [
+              {
+                "sku_id": "2729382476852921123",
+                "sku_count": 1,
+                "product_id": "1729582718312380456",
+                "seller_sku": "yellow-24-XL "
+              }
+            ],
+            "display_status": "UNPAID",
+            "product_name": "Women's Winter Crochet Clothes",
+            "seller_sku": "red_iphone_256",
+            "sku_image": "https://p16-oec-va.itexeitg.com/tos-maliva-d-o5syd03w52-us/46123e87d14f40b69b839",
+            "sku_name": "Iphone",
+            "product_id": "1729582718312380123",
+            "sale_price": "0.01",
+            "platform_discount": "0",
+            "seller_discount": "0",
+            "sku_type": "PRE_ORDER",
+            "cancel_reason": "Discount not as expected",
+            "original_price": "0.01",
+            "rts_time": 1678389618,
+            "package_status": "TO_FULFILL",
+            "currency": "IDR",
+            "shipping_provider_name": "TT Virtual express",
+            "cancel_user": "BUYER",
+            "shipping_provider_id": "6617675021119438849",
+            "is_gift": false,
+            "item_tax": [
+              {
+                "tax_type": "SALES_TAX",
+                "tax_amount": "21.2",
+                "tax_rate": "0.35"
+              }
+            ],
+            "tracking_number": "JX12345",
+            "package_id": "1153132168123859123",
+            "retail_delivery_fee": "1.28",
+            "buyer_service_fee": "1000",
+            "small_order_fee": "5000",
+            "handling_duration_days": "7",
+            "is_dangerous_good": false,
+            "needs_prescription": false
+          }
+        ],
+        "buyer_email": "v2b2V5@chat.seller.tiktok.com",
+        "delivery_due_time": 1678389618,
+        "is_sample_order": false,
+        "shipping_due_time": 1678389618,
+        "collection_due_time": 1678389618,
+        "delivery_option_required_delivery_time": 1678389618,
+        "is_on_hold_order": false,
+        "delivery_time": 1678389618,
+        "is_replacement_order": false,
+        "collection_time": 1678389618,
+        "replaced_order_id": "576461416728782174",
+        "is_buyer_request_cancel": false,
+        "pick_up_cut_off_time": 1678389618,
+        "fast_dispatch_sla_time": 1678389618,
+        "commerce_platform": "TIKTOK_SHOP",
+        "order_type": "ZERO_LOTTERY",
+        "release_date": 1619611762,
+        "handling_duration": {
+          "days": "7",
+          "type": "BUSINESS_DAY"
+        },
+        "auto_combine_group_id": "12345677",
+        "cpf_name": "John Smith",
+        "is_exchange_order": false,
+        "exchange_source_order_id": "576461413038785752",
+        "consultation_id": "123456",
+        "fast_delivery_program": "3_DAY_DELIVERY",
+        "fulfillment_priority_level": 100,
+        "recommended_shipping_time": 1619611561
+      }
+    ]
+  },
+  "message": "Success",
+  "request_id": "202203070749000101890810281E8C70B7"
+}
+​
+Error Code​
+View common error codes​
+Code​
+Message​
+99999999​
+System process error. If multiple retry have failed, please contact the platform for assistance.​
+​
+​
+
+
+Đối tác TikTok Shop
+Get Order Detail 
+​
+Required scope:
+​seller.order.info
+​
+Get the detailed order information of an order, including important attributes such as order status, shipping addresses, payment details, price and tax info, and package information.​
+  
+​
+​
+GET  /order/202507/orders​
+​
+Request​
+View common parameters​
+Header
+Properties​
+Type​
+Description​
+content-type​
+ Required​
+string​
+Allowed type: application/json​
+x-tts-access-token​
+ Required​
+string​
+The seller access_token value from Get Access Token, when user_type = 0. Follow this guide to get seller access_token.​
+​
+Query
+Properties​
+Type​
+Description​
+shop_cipher​
+ Required​
+string​
+Use this property to pass shop information in requesting the API. Failure in passing the correct value when requesting the API for cross-border shops will return incorrect response. ​
+Get by API Get Authorization Shop​
+app_key​
+ Required​
+string​
+Every single app will have a unique key. Please use the specific key assigned to your app.​
+sign​
+ Required​
+string​
+Signature generated by gen algorithm. When you send API requests to TTS, you must sign them so that TTS can identify the senders. ​
+timestamp​
+ Required​
+int​
+Unix timestamp GMT (UTC+00:00). This timestamp is used across all API requests. Developers can use this convert to local time.​
+ids​
+ Required​
+[]string​
+A list of TikTok Shop order ID values.​
+Max count: 50​
+​
+Example
+​
+Curl
+curl -X GET \
+ 'https://open-api.tiktokglobalshop.com/order/202507/orders?app_key=38abcd&sign=5361235029d141222525e303d742f9e38aea052d10896d3197ab9d6233730b8c&timestamp=1623812664&shop_cipher=GCP_XF90igAAAABh00qsWgtvOiGFNqyubMt3&ids=57668123555,57668123555' \
+-H 'x-tts-access-token: TTP_pwSm2AAAAABmmtFz1xlyKMnwg74T2GJ5s0uQbS8jPjb_GkdFVCxPqzQXSyuyfXdQa0AqyDsea2tYFNVf4XeqgZHFfPyv0Vs659QqyLYfsGzanZ5XZAin3_ZkcIxxS0_In6u6XDeU96k' \
+-H 'content-type: application/json'
+
+Go
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+func order202507GetOrderDetailGet() {
+    configuration := apis.NewConfiguration()
+    configuration.AddAppInfo(appKey, appSecret)
+    apiClient := apis.NewAPIClient(configuration)
+    request := apiClient.OrderV202507API.Order202507OrdersGet(context.Background())
+    request = request.XTtsAccessToken("your access token")
+    request = request.ContentType("application/json")
+    request = request.Ids([])
+    request = request.ShopCipher("your shop cipher")
+    resp, httpResp, err := request.Execute()
+    if err != nil || httpResp.StatusCode != 200 {
+        fmt.Printf("productsRequest err:%v resbody:%s", err, httpResp.Body)
+        return
+    }
+    if resp == nil {
+        fmt.Printf("response is nil")
+        return
+    }
+    if resp.GetCode()!= 0 {
+        fmt.Printf("response business is error, errorCode:%d errorMessage:%s", resp.GetCode(), resp.GetMessage())
+        return
+    }
+    respDataJson, _ := json.MarshalIndent(resp.GetData(), "", "  ")
+    fmt.Println("response data:", string(respDataJson))
+    return
+}
+
+
+Node.js
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+async function order202507GetOrderDetailGet() {
+    const result = await client.api.OrderV202507Api.OrdersGet([], "your access token", "application/json", "your shop cipher");
+    console.log('response: ', JSON.stringify(result, null, 2));
+}
+
+
+Java
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+public void order202507GetOrderDetailGet() throws Exception {
+    ApiClient defaultClient = Configuration.getDefaultApiClient()
+            .setAppkey("your appKey")
+            .setSecret("your secret")
+            .setBasePath("https://open-api.tiktokglobalshop.com");
+    OrderV202507Api apiInstance = new OrderV202507Api(defaultClient);
+    GetOrderDetailResponse result = apiInstance.order202507OrdersGet([], "your access token", "application/json", "your shop cipher");
+    System.out.println(result);
+}
+
+​
+​
+Response​
+Parameters
+Properties​
+Type​
+Description​
+code​
+int​
+The success or failure status code returned in API response.​
+message​
+string​
+The success or failure messages returned in API response. Reasons of failure will be described in the message.​
+request_id​
+string​
+Request log​
+data​
+object​
+Specific return information​
+​
+Example
+​
+JSON
+{
+  "code": 0,
+  "data": {
+    "orders": [
+      {
+        "id": "576461413038785752",
+        "cancellation_initiator": "SELLER",
+        "shipping_provider": "TT Virtual express",
+        "shipping_provider_id": "6617675021119438849",
+        "user_id": "7021436810468230477",
+        "status": "UNPAID",
+        "rts_time": 1619611563,
+        "payment": {
+          "currency": "IDR",
+          "sub_total": "5000",
+          "shipping_fee": "5000",
+          "seller_discount": "5000",
+          "platform_discount": "5000",
+          "total_amount": "5000",
+          "original_total_product_price": "5000",
+          "original_shipping_fee": "5000",
+          "shipping_fee_seller_discount": "5000",
+          "shipping_fee_platform_discount": "5000",
+          "shipping_fee_cofunded_discount": "7",
+          "tax": "5000",
+          "small_order_fee": "3000",
+          "shipping_fee_tax": "11",
+          "product_tax": "21.3",
+          "retail_delivery_fee": "1.28",
+          "buyer_service_fee": "1000",
+          "handling_fee": "1000",
+          "shipping_insurance_fee": "1000",
+          "item_insurance_fee": "1000"
+        },
+        "recipient_address": {
+          "full_address": "1199 Coleman Ave San Jose, CA 95110",
+          "phone_number": "(+1)213-***-1234",
+          "name": "David Kong",
+          "first_name": "David",
+          "last_name": "Kong",
+          "first_name_local_script": "ジョン",
+          "last_name_local_script": "ドゥ",
+          "region_code": "US",
+          "postal_code": "95110",
+          "post_town": "Ribbleton",
+          "address_line1": "TikTok 5800 bristol Pkwy",
+          "address_line2": "Suite 100",
+          "address_line3": "Vila Olímpia",
+          "address_line4": "Avenida Presidente Juscelino Kubitschek",
+          "district_info": [
+            {
+              "address_level_name": "Country",
+              "address_name": "United Kingdom",
+              "address_level": "L0"
+            }
+          ],
+          "delivery_preferences": {
+            "drop_off_location": "Front Door"
+          },
+          "address_detail": "Unit one building 8"
+        },
+        "buyer_message": "Please ship asap!",
+        "create_time": 1619611561,
+        "tracking_number": "JX12345",
+        "cancel_reason": "Pricing error",
+        "rts_sla_time": 1619611688,
+        "paid_time": 1619611563,
+        "fulfillment_type": "FULFILLMENT_BY_SELLER",
+        "seller_note": "seller note",
+        "tts_sla_time": 1619611761,
+        "cancel_order_sla_time": 1619621355,
+        "update_time": 1619621355,
+        "packages": [
+          {
+            "id": "1152321127278713123"
+          }
+        ],
+        "delivery_type": "HOME_DELIVERY",
+        "is_sample_order": false,
+        "warehouse_id": "6955005333819123123",
+        "split_or_combine_tag": "COMBINED",
+        "has_updated_recipient_address": false,
+        "cpf": "3213-31231412",
+        "delivery_option_id": "7091146663229654785",
+        "delivery_sla_time": 1678389618,
+        "payment_method_name": "CCDC",
+        "payment_card_type": "Debit\n",
+        "channel_entity_national_registry_id": "26.545.167/0001-21",
+        "payment_method_code": "pm_pi_ccdc_visa_c_d",
+        "payment_auth_code": "AUTH123457",
+        "shipping_due_time": 1678389618,
+        "line_items": [
+          {
+            "id": "577086512123755123",
+            "sku_id": "2729382476852921560",
+            "combined_listing_skus": [
+              {
+                "sku_id": "2729382476852921123",
+                "sku_count": 1,
+                "product_id": "1729582718312380456",
+                "seller_sku": "yellow-24-XL"
+              }
+            ],
+            "product_id": "1729582718312380123",
+            "product_name": "Women's Winter Crochet Clothes",
+            "sku_name": "Iphone",
+            "sku_image": "https://p16-oec-va.itexeitg.com/tos-maliva-d-o5syd03w52-us/46123e87d14f40b69b839",
+            "original_price": "0.01",
+            "sale_price": "0.01",
+            "platform_discount": "0",
+            "display_status": "TO_SHIP",
+            "cancel_user": "BUYER",
+            "sku_type": "PRE_ORDER",
+            "seller_sku": "red_iphone_256",
+            "shipping_provider_id": "6617675021119438849",
+            "seller_discount": "0",
+            "currency": "IDR",
+            "package_id": "1153132168123859123",
+            "rts_time": 1678389618,
+            "item_tax": [
+              {
+                "tax_type": "SALES_TAX",
+                "tax_amount": "21.2",
+                "tax_rate": "0.35"
+              }
+            ],
+            "package_status": "TO_FULFILL",
+            "shipping_provider_name": "TT Virtual express",
+            "is_gift": false,
+            "cancel_reason": "Discount not as expected",
+            "small_order_fee": "5000",
+            "retail_delivery_fee": "1.28",
+            "tracking_number": "JX12345",
+            "buyer_service_fee": "1000",
+            "handling_duration_days": "7",
+            "is_dangerous_good": true,
+            "needs_prescription": true
+          }
+        ],
+        "shipping_type": "TIKTOK",
+        "buyer_email": "v2b2V5@chat.seller.tiktok.com",
+        "delivery_time": 1678389618,
+        "need_upload_invoice": "NEED_INVOICE",
+        "is_cod": false,
+        "request_cancel_time": 1678389618,
+        "delivery_option_required_delivery_time": 1678389618,
+        "delivery_option_name": "Express shipping",
+        "is_buyer_request_cancel": false,
+        "delivery_due_time": 1678389618,
+        "collection_time": 1678389618,
+        "is_on_hold_order": false,
+        "cancel_time": 1678389618,
+        "is_replacement_order": false,
+        "replaced_order_id": "576461416728782174",
+        "collection_due_time": 1678389618,
+        "pick_up_cut_off_time": 1678389618,
+        "fast_dispatch_sla_time": 1678389618,
+        "commerce_platform": "TIKTOK_SHOP",
+        "order_type": "ZERO_LOTTERY",
+        "release_date": 1619611762,
+        "handling_duration": {
+          "days": "7",
+          "type": "BUSINESS_DAY"
+        },
+        "auto_combine_group_id": "12345677",
+        "cpf_name": "John Smith",
+        "is_exchange_order": false,
+        "exchange_source_order_id": "576461413038785752",
+        "consultation_id": "123241",
+        "fast_delivery_program": "3_DAY_DELIVERY"
+      }
+    ]
+  },
+  "message": "Success",
+  "request_id": "202203070749000101890810281E8C70B7"
+}
+​
+​
+Error Code​
+View common error codes​
+Code​
+Message​
+21008111​
+The order or package does not belong to the current seller.​
+21011500​
+System process error. Please try again later.​
+99999999​
+The order search failed due to a timeout, please try again later. If the timeouts persist, please contact us for additional support.​
+​
+​
+
+
+Đối tác TikTok Shop
+Get Price Detail 
+​
+Required scope:
+​seller.order.info
+​
+Get the detailed pricing calculation information of an order or a line item, including vouchers, tax, etc.​
+  
+​
+​
+Get    /order/202407/orders/{order_id}/price_detail​
+​
+Request​
+View common parameters​
+Header
+Properties​
+Type​
+Description​
+content-type​
+ Required​
+string​
+Allowed type: application/json​
+x-tts-access-token​
+ Required​
+string​
+The seller access_token value from Get Access Token, when user_type = 0. Follow this guide to get seller access_token.​
+​
+Query
+Properties​
+Type​
+Description​
+shop_cipher​
+ Required​
+string​
+Use this property to pass shop information in requesting the API. Failure in passing the correct value when requesting the API for cross-border shops will return incorrect response. ​
+Get by API Get Authorization Shop​
+app_key​
+ Required​
+string​
+Every single app will have a unique key. Please use the specific key assigned to your app.​
+sign​
+ Required​
+string​
+Signature generated by gen algorithm. When you send API requests to TTS, you must sign them so that TTS can identify the senders. ​
+timestamp​
+ Required​
+int​
+Unix timestamp GMT (UTC+00:00). This timestamp is used across all API requests. Developers can use this convert to local time.​
+​
+Example
+​
+Curl
+curl -X GET \
+ 'https://open-api.tiktokglobalshop.com/order/202407/orders/576461413038785752/price_detail?timestamp=1623812664&shop_cipher=GCP_XF90igAAAABh00qsWgtvOiGFNqyubMt3&app_key=38abcd&sign=5361235029d141222525e303d742f9e38aea052d10896d3197ab9d6233730b8c' \
+-H 'x-tts-access-token: TTP_pwSm2AAAAABmmtFz1xlyKMnwg74T2GJ5s0uQbS8jPjb_GkdFVCxPqzQXSyuyfXdQa0AqyDsea2tYFNVf4XeqgZHFfPyv0Vs659QqyLYfsGzanZ5XZAin3_ZkcIxxS0_In6u6XDeU96k' \
+-H 'content-type: application/json'
+
+Go
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+func order202407GetPriceDetailGet() {
+    configuration := apis.NewConfiguration()
+    configuration.AddAppInfo(appKey, appSecret)
+    apiClient := apis.NewAPIClient(configuration)
+    request := apiClient.OrderV202407API.Order202407OrdersOrderIdPriceDetailGet(context.Background(), "576461413038785752")
+    request = request.XTtsAccessToken("your access token")
+    request = request.ContentType("application/json")
+    request = request.ShopCipher("your shop cipher")
+    resp, httpResp, err := request.Execute()
+    if err != nil || httpResp.StatusCode != 200 {
+        fmt.Printf("productsRequest err:%v resbody:%s", err, httpResp.Body)
+        return
+    }
+    if resp == nil {
+        fmt.Printf("response is nil")
+        return
+    }
+    if resp.GetCode()!= 0 {
+        fmt.Printf("response business is error, errorCode:%d errorMessage:%s", resp.GetCode(), resp.GetMessage())
+        return
+    }
+    respDataJson, _ := json.MarshalIndent(resp.GetData(), "", "  ")
+    fmt.Println("response data:", string(respDataJson))
+    return
+}
+
+
+Node.js
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+async function order202407GetPriceDetailGet() {
+    const result = await client.api.OrderV202407Api.OrdersOrderIdPriceDetailGet("576461413038785752", "your access token", "application/json", "your shop cipher");
+    console.log('response: ', JSON.stringify(result, null, 2));
+}
+
+
+Java
+// For more details about the SDK, refer to the documentation:
+// https://partner.tiktokshop.com/docv2/page/67c83e0799a75104986ae498
+public void order202407GetPriceDetailGet() throws Exception {
+    ApiClient defaultClient = Configuration.getDefaultApiClient()
+            .setAppkey("your appKey")
+            .setSecret("your secret")
+            .setBasePath("https://open-api.tiktokglobalshop.com");
+    OrderV202407Api apiInstance = new OrderV202407Api(defaultClient);
+    GetPriceDetailResponse result = apiInstance.order202407OrdersOrderIdPriceDetailGet("576461413038785752", "your access token", "application/json", "your shop cipher");
+    System.out.println(result);
+}
+
+​
+​
+Response​
+Parameters
+Properties​
+Type​
+Description​
+code​
+int​
+The success or failure status code returned in API response.​
+message​
+string​
+The success or failure messages returned in API response. Reasons of failure will be described in the message.​
+request_id​
+string​
+Request log​
+data​
+object​
+Specific return information​
+​
+Example
+​
+JSON
+{
+  "code": 0,
+  "data": {
+    "currency": "USD",
+    "total": "122.00",
+    "payment": "101.00",
+    "sku_list_price": "97.00",
+    "sku_sale_price": "96.00",
+    "subtotal": "98.00",
+    "subtotal_deduction_seller": "0.50",
+    "subtotal_deduction_platform": "0.50",
+    "subtotal_tax_amount": "2.00",
+    "voucher_deduction_platform": "1010000",
+    "voucher_deduction_seller": "1020000",
+    "shipping_list_price": "25.00",
+    "shipping_sale_price": "3.00",
+    "shipping_fee_deduction_seller": "10.00",
+    "shipping_fee_deduction_platform": "12.00",
+    "shipping_fee_deduction_platform_voucher": "1010000",
+    "tax_amount": "2.00",
+    "tax_rate": "0.021",
+    "net_price_amount": "97.00",
+    "cod_fee": "0.00",
+    "cod_fee_net_amount": "0.00",
+    "sku_gift_original_price": "2.00",
+    "sku_gift_net_price": "2.02",
+    "line_items": [
+      {
+        "id": "576461413032342720",
+        "currency": "USD",
+        "total": "122.00",
+        "payment": "101.00",
+        "sku_list_price": "97.00",
+        "sku_sale_price": "96.00",
+        "subtotal": "98.00",
+        "subtotal_deduction_seller": "0.50",
+        "subtotal_deduction_platform": "0.50",
+        "subtotal_tax_amount": "2.00",
+        "voucher_deduction_platform": "1010000",
+        "voucher_deduction_seller": "1020000",
+        "shipping_list_price": "25.00",
+        "shipping_sale_price": "3.00",
+        "shipping_fee_deduction_seller": "10.00",
+        "shipping_fee_deduction_platform": "12.00",
+        "shipping_fee_deduction_platform_voucher": "1010000",
+        "tax_amount": "2.00",
+        "tax_rate": "0.021",
+        "net_price_amount": "97.00",
+        "cod_fee": "0.00",
+        "cod_fee_amount": "0.00",
+        "sku_gift_original_price": "2.00",
+        "sku_gift_net_price": "2.02"
+      }
+    ]
+  },
+  "message": "Success",
+  "request_id": "202203070749000101890810281E8C70B7"
+}
+​
+​
+Error Code​
+View common error codes​
+Code​
+Message​
+21001001​
+invalid params​
+21008111​
+The order/package does not belong to the current seller​
+21011500​
+internal error​
+​
+​
+
+
+Đối tác TikTok Shop
+Common errors
+When making API requests, ensuring the correct structure and format is key to smooth communication with TikTok Shop's servers. This topic covers cross-domain errors related to the request query, header, and body format. These fundamental errors occur before business logic processing and must be resolved for a request to be processed successfully.
+
+📌 Note: 0 in the response code indicates that the request was successfully processed.
+
+General errors
+Code	Error message	Details and guidance
+36009002
+Too many requests. You've made too many requests in a short period of time.
+Please wait and try again. Refer to Rate limits for details.
+36009007
+Request timeout. The request to the endpoint timed out.
+Please try again, or consider splitting it into smaller requests.
+36009009
+Invalid path. The specified path does not match any available endpoint.
+Refer to the API documentation for details.
+36009010
+Invalid method. The HTTP method used is not supported by this endpoint.
+Refer to the API documentation for details.
+36009021
+Invalid file size. The uploaded file size exceeds the maximum limit.
+Refer to the API documentation for details.
+36009022
+Invalid request format. The request body format must be application/json for structured data or multipart/form-data for binary files.
+Refer to the API documentation for details.
+36009023
+Invalid request format. The value of the content-type header must be multipart/form-data.
+Refer to the API documentation for details.
+Authorization errors
+Code	Error message	Details and guidance
+101000
+Invalid query or header. The category_asset_cipher query parameter or x-tts-access-token header is invalid.
+For category_asset_cipher, ensure you retrieve the correct value from the Get Authorized Category Assets endpoint.
+
+For x-tts-access-token, possible causes include:
+- The token has an invalid user_type for this endpoint.
+- The token is not associated with a shop, or the associated shop does not match the provided shop_cipher query parameter.
+
+Refer to the authorization guide for details.
+105005
+Access denied. The app is not authorized to access the endpoint because the access scopes granted for the app or the access token do not contain the required access scope for the endpoint.
+Suggested checks:
+1. Check the granted scopes for the app in Partner Center > App & Service > Manage API. If the required scope is missing, apply or enable it in Partner Center.
+2. Check the granted scopes for the token in the granted_scopes field of the Get Access Token response. If the required scope is missing, request the user to reauthorize the required scope, and then generate a new token accordingly.
+36009033
+Access denied. Your IP address is not in the IP allow list configured for this app.
+Add your IP address in Partner Center > App & Service.
+Authentication errors
+Code	Error message	Details and guidance
+105002
+Expired credentials. The access_token or x-tts-access-token header has expired.
+Refresh your token by using the Get Refresh Token endpoint.
+106001
+Invalid credentials. The sign query parameter is invalid.
+Ensure you generate a valid signature by referring to the guide on signing your request.
+36009004
+Missing credentials. The request does not include a required signature in the query.
+Generate a signature by referring to the guide on signing your request.
+36009004
+Invalid credentials. The access_token header is invalid.
+Please pass in the access_token you obtained from the Get Access Tokenendpoint.
+36009004
+Invalid credentials. The x-tts-access-token header is invalid.
+Please pass in the access_token you obtained from the Get Access Tokenendpoint.
+36009004
+Invalid credentials. Invalid app_key query parameter.
+Possible reasons include an invalid key format, the app not being found, the app being disabled or deleted, or there was an error in retrieving the required authorization. Ensure you are retrieving the correct value from the App details page in Partner Center.
+36009004
+Invalid timestamp. The value of the timestamp query parameter must not be lesser than 0.
+Timestamps must lie within the range of 5 minutes before to 30 seconds beyond the current time.
+36009004
+Invalid timestamp. The value of the timestamp query parameter must not be earlier than 5 minutes before the current time.
+Timestamps must lie within the range of 5 minutes before to 30 seconds beyond the current time.
+36009004
+Invalid timestamp. The value of the timestamp query parameter must not exceed the current time by more than 30 seconds.
+Timestamps must lie within the range of 5 minutes before to 30 seconds beyond the current time.
+Parameter errors
+Code	Error message	Details and guidance
+106013
+Missing identifier. The shop_cipher query parameter is required to identify the target shop.
+Retrieve this value from the Get Authorized Shops endpoint.
+36009004
+Unexpected identifier. The shop_cipher query parameter is not required for this request.
+Remove it and try again. Refer to the API documentation for details on the identifier required.
+36009004
+Unexpected identifier. The category_asset_cipher query parameter is not required for this request.
+Remove it and try again. Refer to the API documentation for details on the identifier required.
+36009004
+Invalid identifier. The shop_id query parameter is invalid.
+Retrieve the correct value from the Get Authorized Shops endpoint.
+36009004
+Invalid API version. The version query parameter is invalid.
+Refer to the API documentation to find out the valid API versions.
+
+
+
+
+
+Đối tác TikTok Shop
+Authorization guide (202309)
+Image
+
+Requirements
+Before you begin, please ensure that you have completed the following steps:
+
+Register as a developer on Partner Center.
+Create an app.
+Verify that APIs are enabled for your app.
+Image
+
+Development Shop authorization
+For the purpose of testing API requests, it's recommended to get started by using a Seller Center test account through the Development Shops section of Partner Center. Seller Center tests accounts provide full Seller Center functionality, including authorization.
+
+
+When authorizing an app using a test Seller Center account, you will be taken straight to the seller authorization approval step, allowing you to generate an access token without using an authorization link.
+For more information on how to create a Seller Center test account, please visit our Seller Center Development Shops User Guide.
+
+Step 1: Get authorization code
+Generating an authorization link
+After creating an app, generate an authorization link by clicking Copy authorization link in the Authorization section of your app.
+📌 Note: If you cannot see the option to Copy authorization link, check to see if you are still in draft mode. A custom app in draft mode will need to be published in order to generate an authorization link.
+Image
+❗ Important: Be aware that the authorization link will differ between US and Non-US Partner Centers.
+
+Authorization link example for US:
+
+PLAINTEXT
+Word Wrap
+https://services.us.tiktokshop.com/open/authorize?service_id=7172**********70150
+Authorization link example for Non-US:
+
+PLAINTEXT
+Word Wrap
+https://services.tiktokshop.com/open/authorize?service_id=7172*******70150
+The service_id is the unique identity of your registered online application (client). You can obtain your service_id in the app details, as shown in the following image:
+Image
+Additionally, a state parameter can be added to your authorization link for extra security. The state is an unguessable random string that can help protect against cross-site request forgery attacks.
+Please see the OpenID Connect documentation for an example of how to create and confirm a state. When encoding a state, remove leading and trailing white spaces.
+Authorization link with state parameter example:
+
+PLAINTEXT
+Word Wrap
+https://services.us.tiktokshop.com/open/authorize?service_id=7172**********70150  
+&state=xaoegsefowuf
+Seller authorization approval
+After a seller opens your authorization link, they will be presented with the following authorization prompt:
+
+
+After clicking Next under the correct region, the seller will be required to log in to their account (or create a seller account if they do not currently have one). If there is already a seller center account that's signed in, this step will be skipped and the seller will be taken directly to the next step:
+
+
+After logging in, the seller will be presented with the following form:
+
+
+After entering and confirming the required information, the seller will be able to authorize your app:
+
+
+
+❗ Important: After successful authorization approval, the seller will be redirected to the Redirect URL you provided in your app. This URL contains critical information for the following step(s).
+
+Receiving an authorization code
+Once the seller approves authorization of the app in the TikTok Seller Center account through the service authorization link, they will be redirected to the Redirect URL entered during app creation. The Redirect URL will contain a temporary auth_code as a query parameter.
+
+❗ Important: The auth_code expires in 30 minutes and can only be used once.
+
+Redirect URL and auth_code example:
+
+PLAINTEXT
+Word Wrap
+{redirect_url}?code=FeBoANmHP3yqdoUI9fZOCw&state={state}
+Step 2: Request access token and refresh token
+Ensure you have a valid auth_code before requesting an access token. Please refer to Step 1: Get authorization code on how to obtain an auth_code.
+To request an access_token and refresh_token, make a GET request to the following endpoint:
+
+PLAINTEXT
+Word Wrap
+auth.tiktok-shops.com/api/v2/token/get
+Parameter	Type	Required?	Description	Sample
+app_key
+string
+Yes
+App key in Partner Center app page
+123abc
+app_secret
+string
+Yes
+App secret in Partner Center app page
+15abf8a4972afd1f275d5b19bfa9a17e0d142aa7
+auth_code
+string
+Yes
+Authorization code obtained in Step 1: Get authorization code
+TTP_FeBoANmHP3yqdoUI9fZOCw
+grant_type
+string
+Yes
+Grant token type. Only authorized_code is accepted as a value
+authorized_code
+Your request should resemble the following:
+
+PLAINTEXT
+Word Wrap
+auth.tiktok-shops.com/api/v2/token/get?app_key=123abcd  
+&app_secret=15abf8a4972afd1f275d5b19bfa9a17e0d142aa7  
+&auth_code=TTP_FeBoANmHP3yqdoUI9fZOCw  
+&grant_type=authorized_code
+If all the parameters entered in the GET request are valid, the response will contain the following parameters:
+
+Parameter	Type	Description	Sample
+access_token
+string
+User access token needed to make calls to TikTok Shop Open API endpoints. Pass this value in the x-tts-access-token header of an API request to authorize the request.
+TTP_RLM6CIADWF606TZGFO5XGA
+access_token_expire_in
+Unix timestamp
+Expiration timestamp for access token, with default expiration time set to seven days. The Unix timestamp represents the date and time the access token will expire.
+1630401330
+refresh_token
+string
+A token to refresh the access token
+TTP_C2XWDN63ON-FOHJSMR0WSG
+refresh_token_expire_in
+Unix timestamp
+Expiration timestamp for refresh token. The Unix timestamp represents the date and time the refresh token will expire.
+1630401510
+open_id
+string
+An ID used to identify the user who has authorized the retrieval of their data in API calls
+ephr6QAAAADhos3OBMztFEwRCWQGzDmfXm_7O2OTJyaYKA15pIaiEg
+seller_name
+string
+The name of the seller you are authorizing for your app
+Test Name
+seller_base_region
+string
+The region where the seller is based
+US
+user_type
+int
+Type of user, with possible values:
+
+* 0: Seller
+* 1: Creator
+* 3: Partner
+1
+request_id
+string
+ID to track the API request
+2022080809462301024509910319695C45
+PLAINTEXT
+Word Wrap
+{      
+"code":0,      
+"message":"success",      
+"data":{      
+        "access_token":"TTP_Fw8rBwAAAAAkW03FYd09DG-9INtpw361hWthei8S3fHX8iPJ5AUv99fLSCYD9-UucaqxTgNRzKZxi5-tfFMtdWqglEt5_iCk",      
+        "access_token_expire_in":1660556783,      
+        "refresh_token":"TTP_NTUxZTNhYTQ2ZDk2YmRmZWNmYWY2YWY2YzkxNGYwNjQ3YjkzYTllYjA0YmNlMw",      
+        "refresh_token_expire_in":1691487031,      
+        "open_id":"7010736057180325637",      
+        "seller_name":"Jjj test shop",      
+        "seller_base_region":"ID",      
+        "user_type":0      
+    },      
+"request_id":"2022080809462301024509910319695C45"      
+}
+Step 3: Refresh access token
+Image
+Image
+Once an app is authorized by a TikTok Shop seller account, it obtains an access_token, which is essential for authenticating and making calls to TikTok Shop APIs.
+
+❗ Important: The access_token must be refreshed every 7 days using a refresh_token. Failure to refresh before its expiration will result in authentication failure when attempting to request data through TikTok Shop APIs.
+
+📌 Note: The refresh_token_expire_in is equivalent to the authorization duration provided when the seller initially authorized app access.
+
+The access_token remains valid until the refresh_expire_date, which is returned in the response.
+To refresh your access_token, make a GET request to the following endpoint:
+
+PLAINTEXT
+Word Wrap
+auth.tiktok-shops.com/api/v2/token/refresh
+Parameter	Type	Required?	Description	Sample
+app_key
+string
+Yes
+App key in the TikTok Shop Partner Center app page
+65t60877bfejb
+app_secret
+string
+Yes
+App secret in the Tiktok Shop Partner Center app page
+15abf8a4972afd1f275d5b19bfa9a17e0d142aa7
+refresh_token
+string
+Yes
+A token to refresh the access token
+TTP_C2XWDN63ON-FOHJSMR0WSG
+grant_type
+string
+Yes
+Grant token type. Only refresh_token is accepted.
+refresh_token
+Your request should resemble the following:
+
+PLAINTEXT
+Word Wrap
+https://auth.tiktok-shops.com/api/v2/token/refresh?app_key=65t6a8e8bfejb  
+&app_secret=f4c770e4b45aa62e  
+&refresh_token=TTP_EB9rlwAAAADXbnMESTWAZSxIcC-XUA5AyeEOdmGBKY2FiKFYKqON6jco  
+&grant_type=refresh_token
+If all the parameters entered in the GET request are valid, the response will contain the following parameters:
+
+Parameter	Type	Description	Sample
+access_token
+string
+User access token needed to make calls to TikTok Shop Open API endpoints. Pass this value in the x-tts-access-token header of an API request to authorize the request.
+TTP_RLM6CIADWF606TZGFO5XGA
+access_token_expire_in
+Unix timestamp
+Expiration timestamp for access token, with default expiration time set to seven days. The Unix timestamp represents the date and time the access token will expire.
+1630401330
+refresh_token
+string
+A token to refresh the access token
+TTP_C2XWDN63ON-FOHJSMR0WSG
+refresh_token_expire_in
+Unix timestamp
+Expiration timestamp for refresh token. The Unix timestamp represents the date and time the refresh token will expire.
+1630401510
+open_id
+string
+An ID used to identify the user who has authorized the retrieval of their data in API calls
+jKlhBwAAAADxnvrRWZm0h5wx9isdVlL5tdIEOrGL_EZjSlhzJbuXt7_AZssO6oXnuIHC1NyR_ruluQnSaXetBDLjt_Y8d1JG
+seller_name
+string
+The name of the seller you are authorizing for your app
+Test Seller
+seller_base_region
+string
+The region where the seller is based
+US
+user_type
+int
+Type of user, with possible values:
+
+* 0: Seller
+* 1: Creator
+1
+request_id
+string
+ID to track the API request
+2022080809462301024509910319695C45
+PLAINTEXT
+Word Wrap
+{      
+"code":0,      
+"message":"success",      
+"data":{      
+        "access_token":"TTP_Fw8rBwAAAAAkW03FYd09DG-9INtpw361hWthei8S3fHX8iPJ5AUv99fLSCYD9-UucaqxTgNRzKZxi5-tfFMtdWqglEt5_iCk",      
+        "access_token_expire_in":1660556783,      
+        "refresh_token":"TTP_NTUxZTNhYTQ2ZDk2YmRmZWNmYWY2YWY2YzkxNGYwNjQ3YjkzYTllYjA0YmNlMw",      
+        "refresh_token_expire_in":1691487031,      
+        "open_id":"7010736057180325637",      
+        "seller_name":"Jjj test shop",      
+        "seller_base_region":"ID",      
+        "user_type":0      
+    },      
+"request_id":"2022080809462301024509910319695C45"      
+}
+
+
+
+
+Đối tác TikTok Shop
+Common parameters
+When calling any TikTok Shop API, these are the required common parameters:
+
+Parameter	Location	Type	Description	Sample
+app_key
+Query
+string
+The unique key assigned to your app. Refer to Create your app to find out where to get your app_key.
+29a39d
+sign
+Query
+string
+A HMAC-SHA256 hash based on the parameter values, used by the service to verify the sender of the request in addition to the bearer/authorization token.
+Refer to Sign your API request to learn how to generate this signature.
+bc721f0e0182914e3487b81df204de37a352fc3aa96947efda6dc1e5dd0d5290
+timestamp
+Query
+Unix timestamp
+A timestamp in Unix epoch format to ensure timeliness of the request and to prevent replay attack. This is also used to generate the digital signature for the sign parameter.
+Valid range: [Current time – 5 mins, current time + 30 secs]
+1623812664
+
+
